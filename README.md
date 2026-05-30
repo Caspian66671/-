@@ -89,6 +89,37 @@ http://0.0.0.0:8787
 /time
 ```
 
+## 新电脑从零拉取
+
+新电脑只需要安装好 Git、Node.js 18+ 和 ESP-IDF 5.x，然后执行：
+
+```powershell
+git clone https://gitee.com/h616444/revised-edition.git
+cd revised-edition
+```
+
+拉取后先双击：
+
+```text
+new_pc_check.bat
+```
+
+这个脚本会检查 Git、Node.js、ESP-IDF 命令行和项目关键文件是否齐全。ESP-IDF 项目的 `sdkconfig`、`build/`、`managed_components/` 不提交到仓库，新电脑构建时会自动根据 `sdkconfig.defaults` 和 `main/idf_component.yml` 生成/下载。
+
+构建固件可以在 ESP-IDF 终端里双击或运行：
+
+```text
+build_firmware.bat
+```
+
+也可以手动执行：
+
+```powershell
+idf.py set-target esp32p4
+idf.py build
+idf.py -p COM3 flash
+```
+
 如果想让 Windows 登录后自动启动代理，可以运行：
 
 ```text

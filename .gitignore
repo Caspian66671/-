@@ -7,3 +7,4 @@ sdkconfig.old
 last_event.json
 .claude/
 .vscode/
+__fresh_clone_check/
