@@ -3,7 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ProxyScript = Join-Path $Root "tools\workbuddy_proxy.js"
 $OutLog = Join-Path $Root "proxy.out.log"
 $ErrLog = Join-Path $Root "proxy.err.log"
@@ -20,15 +20,24 @@ function Test-Proxy {
 if (Test-Proxy) {
     Write-Host "WorkBuddy proxy already running on port $Port."
 } else {
+    if (-not (Test-Path $ProxyScript)) {
+        throw "Proxy script not found: $ProxyScript"
+    }
+
+    $NodePath = (Get-Command "node.exe" -ErrorAction Stop).Source
+    $NodeArgs = "`"$ProxyScript`" --port $Port"
+
     Write-Host "Starting WorkBuddy proxy on port $Port..."
     Start-Process -WindowStyle Hidden `
-        -FilePath "node.exe" `
-        -ArgumentList @($ProxyScript) `
+        -FilePath $NodePath `
+        -ArgumentList $NodeArgs `
         -WorkingDirectory $Root `
         -RedirectStandardOutput $OutLog `
         -RedirectStandardError $ErrLog
 
-    Start-Sleep -Milliseconds 900
+    for ($i = 0; $i -lt 12 -and -not (Test-Proxy); $i++) {
+        Start-Sleep -Milliseconds 500
+    }
 }
 
 if (-not (Test-Proxy)) {

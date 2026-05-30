@@ -1,6 +1,14 @@
 const http = require("http");
 
-const PORT = Number(process.env.PORT || 8787);
+function portFromArgs() {
+  const index = process.argv.indexOf("--port");
+  if (index >= 0 && process.argv[index + 1]) {
+    return process.argv[index + 1];
+  }
+  return "";
+}
+
+const PORT = Number(process.env.PORT || portFromArgs() || 8787);
 const XIAN_LAT = 34.3416;
 const XIAN_LON = 108.9398;
 
