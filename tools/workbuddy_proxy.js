@@ -271,14 +271,14 @@ async function deepseekInsight(weather, time) {
           {
             role: "system",
             content:
-              "你是企业展厅里的边缘智能业务助理。只返回 JSON，不要解释。字段 insight 只能是 CUSTOMER/RISK/EFFICIENCY/FOCUS/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
+              "你是一个企业级AI桌宠的决策模块。只返回 JSON，不要解释。字段 insight 只能是 CARE/RISK/RHYTHM/FOCUS/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
           },
           {
             role: "user",
             content: JSON.stringify({
               weather,
               time,
-              task: "根据天气、时间和日程状态，为企业展示屏生成一句经营洞察类别。",
+              task: "根据天气、时间和日程状态，为桌面AI陪伴助手生成一个陪伴洞察类别。",
             }),
           },
         ],
@@ -291,7 +291,7 @@ async function deepseekInsight(weather, time) {
     const parsed = parseJsonContent(content);
     return {
       model: "DEEPSEEK",
-      insight: normalizeChoice(parsed.insight, ["CUSTOMER", "RISK", "EFFICIENCY", "FOCUS", "STABLE"], "STABLE"),
+      insight: normalizeChoice(parsed.insight, ["CARE", "RISK", "RHYTHM", "FOCUS", "STABLE"], "STABLE"),
       risk: normalizeChoice(parsed.risk, ["LOW", "MEDIUM", "HIGH"], "LOW"),
       basis: String(parsed.basis || "DEEPSEEK WEATHER TIME").replace(/[\r\n:]/g, " ").slice(0, 80),
     };
@@ -331,7 +331,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.url === "/health") {
-      send(res, 200, "OK ENTERPRISE");
+      send(res, 200, "OK PET");
       return;
     }
     send(res, 404, "NOT FOUND");
@@ -341,7 +341,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`WorkBuddy enterprise proxy listening on http://0.0.0.0:${PORT}`);
+  console.log(`WorkBuddy DeepSeek pet proxy listening on http://0.0.0.0:${PORT}`);
   console.log("Endpoints: /weather /time /insight /health");
-  console.log(DEEPSEEK_API_KEY ? `DeepSeek enabled: ${DEEPSEEK_MODEL}` : "DeepSeek not configured, using enterprise fallback.");
+  console.log(DEEPSEEK_API_KEY ? `DeepSeek enabled: ${DEEPSEEK_MODEL}` : "DeepSeek not configured, using local pet fallback.");
 });

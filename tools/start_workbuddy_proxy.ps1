@@ -5,9 +5,14 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ProxyScript = Join-Path $Root "tools\workbuddy_proxy.js"
+$DeepSeekConfig = Join-Path $Root "deepseek_config.ps1"
 $LogSuffix = if ($Port -eq 8787) { "" } else { ".$Port" }
 $OutLog = Join-Path $Root "proxy$LogSuffix.out.log"
 $ErrLog = Join-Path $Root "proxy$LogSuffix.err.log"
+
+if (Test-Path $DeepSeekConfig) {
+    . $DeepSeekConfig
+}
 
 function Initialize-LogFile {
     param(
@@ -46,8 +51,11 @@ function Test-Proxy {
 
 function Test-EnterpriseProxy {
     try {
-        $insight = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/insight" -TimeoutSec 4
-        return ($insight.Content -like "*MODEL:*" -and $insight.Content -like "*INSIGHT:*")
+        $health = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/health" -TimeoutSec 2
+        $insight = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/insight" -TimeoutSec 15
+        return ($health.Content.Trim() -eq "OK PET" -and
+                $insight.Content -like "*MODEL:*" -and
+                $insight.Content -like "*INSIGHT:*")
     } catch {
         return $false
     }
@@ -68,10 +76,10 @@ function Stop-WorkBuddyProxy {
 $NeedsStart = $true
 if (Test-Proxy) {
     if (Test-EnterpriseProxy) {
-        Write-Host "WorkBuddy enterprise proxy already running on port $Port."
+        Write-Host "WorkBuddy DeepSeek pet proxy already running on port $Port."
         $NeedsStart = $false
     } else {
-        Write-Host "Old WorkBuddy proxy detected on port $Port. Restarting for enterprise insight..."
+        Write-Host "Old WorkBuddy proxy detected on port $Port. Restarting for DeepSeek pet insight..."
         if (-not (Stop-WorkBuddyProxy)) {
             Write-Host "No WorkBuddy node process was found to stop. Port $Port may be used by another program."
         }
@@ -148,6 +156,6 @@ Write-Host "Time:"
 Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/time" -TimeoutSec 3 |
     Select-Object -ExpandProperty Content
 Write-Host ""
-Write-Host "Enterprise insight:"
+Write-Host "AI pet insight:"
 Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/insight" -TimeoutSec 12 |
     Select-Object -ExpandProperty Content

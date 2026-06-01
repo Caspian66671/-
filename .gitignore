@@ -8,3 +8,4 @@ last_event.json
 .claude/
 .vscode/
 __fresh_clone_check/
+deepseek_config.ps1

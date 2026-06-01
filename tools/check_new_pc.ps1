@@ -54,6 +54,8 @@ $files = @(
     "partitions.csv",
     "tools\workbuddy_proxy.js",
     "start_demo.bat",
+    "set_deepseek_key.bat",
+    "deepseek_config.example.ps1",
     "build_firmware.bat",
     "tools\start_workbuddy_proxy.ps1"
 )
