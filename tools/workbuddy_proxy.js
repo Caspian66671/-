@@ -178,11 +178,19 @@ function lunarText(date) {
 
 function timeData() {
   const now = beijingNow();
+  const weekday = now.getDay();
+  const holiday = holidayFor(now);
+  const isWeekend = weekday === 0 || weekday === 6;
+  const isHoliday = holiday !== "NONE";
   return {
     time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
     date: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
     lunar: lunarText(now),
-    holiday: holidayFor(now),
+    holiday,
+    weekday,
+    isWeekend,
+    isHoliday,
+    dayType: isHoliday ? "HOLIDAY" : isWeekend ? "WEEKEND" : "WORKDAY",
     hour: now.getHours(),
   };
 }
@@ -205,61 +213,158 @@ function riskFromWeather(weather, rain) {
 
 function localInsight(weather, time) {
   const risk = riskFromWeather(weather.weather, weather.rain);
+  const isRestDay = time.isHoliday || time.isWeekend || time.dayType === "HOLIDAY" || time.dayType === "WEEKEND";
   if (risk === "HIGH") {
     return {
       model: "LOCAL",
       insight: "UMBRELLA",
       risk,
-      basis: "WEATHER_RAIN TIME_STATUS LOCAL_RULE",
+      basis: `${time.dayType} WEATHER_RAIN LOCAL_RULE`,
     };
   }
-  if (weather.advice === "HOT") {
+
+  if (isRestDay) {
+    if (time.hour >= 7 && time.hour < 11) {
+      return {
+        model: "LOCAL",
+        insight: "EXERCISE",
+        risk,
+        basis: `${time.dayType} MORNING_EXERCISE LOCAL_RULE`,
+      };
+    }
+    if (time.hour >= 11 && time.hour < 14) {
+      return {
+        model: "LOCAL",
+        insight: "LUNCH",
+        risk,
+        basis: `${time.dayType} LUNCH_TIME LOCAL_RULE`,
+      };
+    }
+    if (time.hour >= 14 && time.hour < 18) {
+      return {
+        model: "LOCAL",
+        insight: "REST",
+        risk,
+        basis: `${time.dayType} AFTERNOON_REST LOCAL_RULE`,
+      };
+    }
+    if (time.hour >= 18 && time.hour < 22) {
+      return {
+        model: "LOCAL",
+        insight: "EXERCISE",
+        risk,
+        basis: `${time.dayType} EVENING_EXERCISE LOCAL_RULE`,
+      };
+    }
     return {
       model: "LOCAL",
-      insight: "HYDRATE",
+      insight: "SLEEP",
       risk,
-      basis: "WEATHER_HOT TIME_STATUS LOCAL_RULE",
+      basis: `${time.dayType} SLEEP_TIME LOCAL_RULE`,
+    };
+  }
+
+  if (time.hour >= 6 && time.hour < 9) {
+    return {
+      model: "LOCAL",
+      insight: "BREAKFAST",
+      risk,
+      basis: "WORKDAY BREAKFAST_TIME LOCAL_RULE",
+    };
+  }
+  if (time.hour >= 9 && time.hour < 11) {
+    return {
+      model: "LOCAL",
+      insight: "RESEARCH_FOCUS",
+      risk,
+      basis: "WORKDAY MORNING_RESEARCH LOCAL_RULE",
     };
   }
   if (time.hour >= 11 && time.hour < 14) {
     return {
       model: "LOCAL",
-      insight: "BREAK",
+      insight: "LUNCH",
       risk,
-      basis: "NOON TIME_STATUS LOCAL_RULE",
+      basis: "WORKDAY LUNCH_TIME LOCAL_RULE",
     };
   }
-  if (time.hour >= 18 && time.hour < 23) {
+  if (time.hour >= 14 && time.hour < 17) {
     return {
       model: "LOCAL",
-      insight: "PLAN",
+      insight: "PAPER_READING",
       risk,
-      basis: "EVENING TIME_STATUS LOCAL_RULE",
+      basis: "WORKDAY PAPER_READING LOCAL_RULE",
     };
   }
-  if (time.hour >= 23 || time.hour < 6) {
+  if (time.hour >= 17 && time.hour < 19) {
     return {
       model: "LOCAL",
-      insight: "REST",
+      insight: "DINNER",
       risk,
-      basis: "LATE_NIGHT TIME_STATUS LOCAL_RULE",
+      basis: "WORKDAY DINNER_TIME LOCAL_RULE",
     };
   }
-  if (time.hour >= 9 && time.hour < 18) {
+  if (time.hour >= 19 && time.hour < 22) {
     return {
       model: "LOCAL",
-      insight: "FOCUS",
+      insight: "WRITE_THESIS",
       risk,
-      basis: "WEATHER_STABLE WORK_HOUR LOCAL_RULE",
+      basis: "WORKDAY THESIS_WRITING LOCAL_RULE",
     };
   }
+  if (time.hour >= 22 || time.hour < 6) {
+    return {
+      model: "LOCAL",
+      insight: "SLEEP",
+      risk,
+      basis: "WORKDAY SLEEP_TIME LOCAL_RULE",
+    };
+  }
+
+  if (weather.advice === "HOT") {
+    return {
+      model: "LOCAL",
+      insight: "HYDRATE",
+      risk,
+      basis: "WORKDAY WEATHER_HOT LOCAL_RULE",
+    };
+  }
+
   return {
     model: "LOCAL",
-    insight: "HYDRATE",
+    insight: "PLAN",
     risk,
-    basis: "WEATHER_STABLE TIME_STATUS LOCAL_RULE",
+    basis: "WORKDAY TIME_STATUS LOCAL_RULE",
   };
 }
+
+const INSIGHT_CHOICES = [
+  "BREAKFAST",
+  "LUNCH",
+  "DINNER",
+  "RESEARCH_FOCUS",
+  "PAPER_READING",
+  "EXPERIMENT",
+  "WRITE_THESIS",
+  "EXERCISE",
+  "REST",
+  "SLEEP",
+  "UMBRELLA",
+  "HYDRATE",
+  "PLAN",
+  "SUN",
+  "STABLE",
+];
+
+const DEEPSEEK_SYSTEM_PROMPT = [
+  "You are the DeepSeek model powering a smart desktop pet for a master's student.",
+  "Return JSON only, with no explanation.",
+  `insight must be one of: ${INSIGHT_CHOICES.join("/")}.`,
+  "risk must be LOW, MEDIUM, or HIGH.",
+  "basis must be short English tags.",
+  "On workdays, prioritize meal reminders, research focus, paper reading, experiments, thesis writing, and sleep.",
+  "On weekends or holidays, prioritize rest, exercise, meals, and gentle planning.",
+].join(" ");
 
 function normalizeChoice(value, allowed, fallback) {
   const upper = String(value || "").toUpperCase();
@@ -302,15 +407,15 @@ async function deepseekInsight(weather, time) {
         messages: [
           {
             role: "system",
-            content:
-              "你是一个贴心的桌面生活助理。只返回 JSON，不要解释。字段 insight 只能是 UMBRELLA/HYDRATE/BREAK/FOCUS/PLAN/REST/SUN/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
+            content: DEEPSEEK_SYSTEM_PROMPT,
           },
           {
             role: "user",
             content: JSON.stringify({
               weather,
               time,
-              task: "根据天气、时间和日程状态，给用户一个像生活助理一样的简短建议类别。",
+              user_profile: "master_student",
+              task: "Pick the best life assistant category for the current time. Show master's-student routine intelligence and DeepSeek integration.",
             }),
           },
         ],
@@ -323,7 +428,7 @@ async function deepseekInsight(weather, time) {
     const parsed = parseJsonContent(content);
     return {
       model: "DEEPSEEK",
-      insight: normalizeChoice(parsed.insight, ["UMBRELLA", "HYDRATE", "BREAK", "FOCUS", "PLAN", "REST", "SUN", "STABLE"], "STABLE"),
+      insight: normalizeChoice(parsed.insight, INSIGHT_CHOICES, "STABLE"),
       risk: normalizeChoice(parsed.risk, ["LOW", "MEDIUM", "HIGH"], "LOW"),
       basis: String(parsed.basis || "DEEPSEEK WEATHER TIME").replace(/[\r\n:]/g, " ").slice(0, 80),
     };
