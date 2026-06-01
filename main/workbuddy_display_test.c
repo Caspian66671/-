@@ -49,20 +49,20 @@ static esp_lcd_panel_handle_t s_panel;
 static lv_display_t *s_lvgl_disp;
 static bool s_lvgl_ready;
 static const char *s_pet_state = "待机中";
-static const char *s_pet_tip = "晴天适合出门";
-static const char *s_pet_reason = "天气和日历待更新";
-static const char *s_pet_model_tip = "等待模型增强";
+static const char *s_pet_tip = "等待业务数据";
+static const char *s_pet_reason = "天气和日程待更新";
+static const char *s_pet_model_tip = "DeepSeek 待接入";
 static uint32_t s_pet_accent = 0x1c98d2;
 static int s_pet_service_count;
 static workbuddy_action_id_t s_pet_last_action = WORKBUDDY_ACTION_TIME;
 static char s_pet_weather_summary[96] = "天气待更新";
-static char s_pet_calendar_summary[96] = "日历待更新";
-static char s_pet_combined_reason[256] = "等待天气和日历数据";
-static char s_pet_combined_tip[256] = "先查询天气或日历，我再给你建议";
+static char s_pet_calendar_summary[96] = "日程待更新";
+static char s_pet_combined_reason[256] = "等待业务数据同步";
+static char s_pet_combined_tip[256] = "先同步数据再生成洞察";
 static const char *s_pet_weather_scene = "天气待更新";
-static const char *s_pet_time_scene = "时间待更新";
-static const char *s_pet_emotion_scene = "情绪待接入";
-static const char *s_pet_next_module = "人脸待接入";
+static const char *s_pet_time_scene = "日程待更新";
+static const char *s_pet_emotion_scene = "模型待接入";
+static const char *s_pet_next_module = "DeepSeek 待接入";
 static workbuddy_face_state_t s_face_state = WORKBUDDY_FACE_UNKNOWN;
 static workbuddy_emotion_state_t s_emotion_state = WORKBUDDY_EMOTION_UNKNOWN;
 
@@ -264,40 +264,40 @@ static void update_pet_from_ai_context(void)
 {
     switch (s_face_state) {
     case WORKBUDDY_FACE_DETECTED:
-        s_pet_next_module = "已检测到人脸";
+        s_pet_next_module = "客户状态已接入";
         break;
     case WORKBUDDY_FACE_NOT_DETECTED:
-        s_pet_next_module = "未检测到人脸";
+        s_pet_next_module = "客户状态未接入";
         break;
     default:
-        s_pet_next_module = "人脸待接入";
+        s_pet_next_module = "DeepSeek 待接入";
         break;
     }
 
     switch (s_emotion_state) {
     case WORKBUDDY_EMOTION_HAPPY:
-        s_pet_emotion_scene = "情绪开心";
-        s_pet_state = "开心";
-        s_pet_tip = "状态不错继续保持";
+        s_pet_emotion_scene = "客户状态积极";
+        s_pet_state = "运行良好";
+        s_pet_tip = "适合推进重点任务";
         s_pet_accent = 0x1c98d2;
         break;
     case WORKBUDDY_EMOTION_TIRED:
-        s_pet_emotion_scene = "情绪疲惫";
-        s_pet_state = "关心";
-        s_pet_tip = "检测疲惫建议休息";
+        s_pet_emotion_scene = "客户状态疲惫";
+        s_pet_state = "风险提醒";
+        s_pet_tip = "建议优化服务节奏";
         s_pet_accent = 0xff9f22;
         break;
     case WORKBUDDY_EMOTION_FOCUSED:
-        s_pet_emotion_scene = "专注中";
-        s_pet_state = "专注";
-        s_pet_tip = "今天适合专注学习";
+        s_pet_emotion_scene = "专注推进中";
+        s_pet_state = "重点推进";
+        s_pet_tip = "适合推进重点任务";
         s_pet_accent = 0x2f86ff;
         break;
     case WORKBUDDY_EMOTION_NEUTRAL:
-        s_pet_emotion_scene = "情绪平稳";
+        s_pet_emotion_scene = "客户状态平稳";
         break;
     default:
-        s_pet_emotion_scene = "情绪待接入";
+        s_pet_emotion_scene = "模型待接入";
         break;
     }
     refresh_pet_combined_tip();
@@ -515,6 +515,73 @@ static void update_pet_tip_from_calendar(const char *time_value, const char *hol
     refresh_pet_combined_tip();
 }
 
+static const char *enterprise_insight_tip(const char *insight)
+{
+    if (ascii_contains_ci(insight, "CUSTOMER")) {
+        return "适合安排客户拜访";
+    }
+    if (ascii_contains_ci(insight, "RISK")) {
+        return "天气风险需关注";
+    }
+    if (ascii_contains_ci(insight, "EFFICIENCY")) {
+        return "建议优化排班节奏";
+    }
+    if (ascii_contains_ci(insight, "FOCUS")) {
+        return "适合推进重点任务";
+    }
+    if (ascii_contains_ci(insight, "STABLE")) {
+        return "运营状态稳定";
+    }
+    return "业务数据已同步";
+}
+
+static const char *enterprise_basis_text(const char *basis, const char *model)
+{
+    if (ascii_contains_ci(model, "DEEPSEEK")) {
+        if (ascii_contains_ci(basis, "WEATHER_RAIN")) {
+            return "天气风险  日程状态  DeepSeek";
+        }
+        return "天气数据  日程状态  DeepSeek";
+    }
+    return "天气数据  日程状态  企业规则";
+}
+
+static void update_pet_tip_from_insight(const char *text)
+{
+    char insight[64];
+    char basis[128];
+    char model[48];
+    char risk[32];
+    copy_field_value(text, "INSIGHT:", insight, sizeof(insight));
+    copy_field_value(text, "BASIS:", basis, sizeof(basis));
+    copy_field_value(text, "MODEL:", model, sizeof(model));
+    copy_field_value(text, "RISK:", risk, sizeof(risk));
+
+    s_pet_service_count++;
+    s_pet_last_action = WORKBUDDY_ACTION_AI_INSIGHT;
+    s_pet_tip = enterprise_insight_tip(insight);
+    s_pet_reason = "企业经营数据";
+    s_pet_weather_scene = ascii_contains_ci(basis, "WEATHER_RAIN") ? "天气风险" : "天气稳定";
+    s_pet_time_scene = ascii_contains_ci(basis, "HOLIDAY") ? "节日排班" : "日程同步";
+    s_pet_emotion_scene = ascii_contains_ci(model, "DEEPSEEK") ? "模型已接入" : "企业规则";
+    s_pet_next_module = ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "等待 DeepSeek API";
+    s_pet_model_tip = ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已生成" : "企业规则兜底";
+
+    if (ascii_contains_ci(risk, "HIGH")) {
+        s_pet_state = "风险提醒";
+        s_pet_accent = 0xff9f22;
+    } else if (ascii_contains_ci(risk, "MEDIUM")) {
+        s_pet_state = "重点关注";
+        s_pet_accent = 0x9465ff;
+    } else {
+        s_pet_state = "平稳运行";
+        s_pet_accent = 0x1c98d2;
+    }
+
+    snprintf(s_pet_combined_reason, sizeof(s_pet_combined_reason), "%s", enterprise_basis_text(basis, model));
+    snprintf(s_pet_combined_tip, sizeof(s_pet_combined_tip), "%s", s_pet_tip);
+}
+
 static void update_pet_tip_querying(workbuddy_action_id_t action_id)
 {
     s_pet_last_action = action_id;
@@ -523,13 +590,18 @@ static void update_pet_tip_querying(workbuddy_action_id_t action_id)
         s_pet_tip = "正在看天气";
         s_pet_reason = "查询请求";
         s_pet_accent = 0x1c98d2;
-    } else {
-        s_pet_state = "查询日历";
-        s_pet_tip = "正在看日期";
+    } else if (action_id == WORKBUDDY_ACTION_TIME) {
+        s_pet_state = "查询日程";
+        s_pet_tip = "正在同步日程";
         s_pet_reason = "查询请求";
         s_pet_accent = 0xff9f22;
+    } else {
+        s_pet_state = "AI分析中";
+        s_pet_tip = "正在生成业务洞察";
+        s_pet_reason = "DeepSeek 请求";
+        s_pet_accent = 0x9465ff;
     }
-    s_pet_model_tip = "等待模型增强";
+    s_pet_model_tip = action_id == WORKBUDDY_ACTION_AI_INSIGHT ? "DeepSeek 分析中" : "DeepSeek 待接入";
 }
 
 static int lunar_token_value(const char *token)
@@ -752,11 +824,11 @@ static bool lvgl_show_launcher(void)
     lvgl_set_vertical_gradient(scr, 0xe7f7ff, 0xc7f0ff);
     lvgl_card(scr, 0, 0, LCD_H_RES, 86, 0x19afd8, 0);
     lv_obj_set_style_bg_opa(lvgl_card(scr, 0, 86, LCD_H_RES, 102, 0x8fe2f5, 0), LV_OPA_40, 0);
-    lvgl_label(scr, "桌宠中控台", 48, 22, &workbuddy_cn_28, 0xffffff);
+    lvgl_label(scr, "企业智能中控", 48, 22, &workbuddy_cn_28, 0xffffff);
 
     lv_obj_t *pet_card = lvgl_glass_card(scr, 66, 132, 348, 344, 28);
-    lvgl_label(pet_card, "小伙伴在线", 34, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(pet_card, "今日提醒", 36, 92, &workbuddy_cn_20, 0x577489);
+    lvgl_label(pet_card, "业务助手在线", 34, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(pet_card, "今日洞察", 36, 92, &workbuddy_cn_20, 0x577489);
     lv_obj_t *tip_label = lvgl_label(pet_card, s_pet_tip, 36, 126, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(tip_label, 276);
     lvgl_card(pet_card, 42, 212, 100, 100, 0xffd23f, 50);
@@ -775,7 +847,7 @@ static bool lvgl_show_launcher(void)
     lv_obj_set_style_bg_opa(analysis_btn, LV_OPA_80, 0);
     lv_obj_set_style_border_width(analysis_btn, 2, 0);
     lv_obj_set_style_border_color(analysis_btn, lv_color_hex(s_pet_accent), 0);
-    lvgl_label(analysis_btn, "查看分析", 24, 8, &workbuddy_cn_20, s_pet_accent);
+    lvgl_label(analysis_btn, "查看洞察", 24, 8, &workbuddy_cn_20, s_pet_accent);
 
     lv_obj_t *panel = lvgl_glass_card(scr, 456, 132, 486, 344, 28);
     lvgl_card(panel, 44, 54, 104, 104, 0x238dff, 24);
@@ -783,7 +855,7 @@ static bool lvgl_show_launcher(void)
     lvgl_card(panel, 336, 54, 104, 104, 0x9465ff, 24);
     lvgl_label(panel, "天气提醒", 58, 174, &workbuddy_cn_20, 0x10283e);
     lvgl_label(panel, "日程提醒", 204, 174, &workbuddy_cn_20, 0x10283e);
-    lvgl_label(panel, "智能建议", 350, 174, &workbuddy_cn_20, 0x10283e);
+    lvgl_label(panel, "AI洞察", 360, 174, &workbuddy_cn_20, 0x10283e);
     lvgl_label(panel, "晴", 82, 88, &workbuddy_cn_20, 0xffffff);
     lvgl_label(panel, "15", 226, 80, &lv_font_montserrat_32, 0xffffff);
     lvgl_label(panel, "AI", 374, 84, &lv_font_montserrat_20, 0xffffff);
@@ -805,29 +877,30 @@ static bool lvgl_show_suggestion_page(void)
     lvgl_card(scr, 0, 0, LCD_H_RES, 86, 0x19afd8, 0);
     lv_obj_set_style_bg_opa(lvgl_card(scr, 0, 86, LCD_H_RES, 88, 0x8fe2f5, 0), LV_OPA_40, 0);
     lvgl_label(scr, "返回", 32, 28, &workbuddy_cn_20, 0xffffff);
-    lvgl_label(scr, "智能建议", 110, 24, &workbuddy_cn_28, 0xffffff);
+    lvgl_label(scr, "AI洞察", 110, 24, &workbuddy_cn_28, 0xffffff);
 
     lv_obj_t *main_card = lvgl_glass_card(scr, 92, 132, 430, 340, 28);
-    lvgl_label(main_card, "桌宠建议", 40, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(main_card, "当前建议", 42, 92, &workbuddy_cn_20, 0x577489);
+    lvgl_label(main_card, "经营建议", 40, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(main_card, "当前洞察", 42, 92, &workbuddy_cn_20, 0x577489);
     lv_obj_t *tip_label = lvgl_label(main_card, s_pet_combined_tip, 42, 124, &workbuddy_cn_28, s_pet_accent);
     lvgl_label_width(tip_label, 330);
-    lvgl_label(main_card, "判断依据", 42, 190, &workbuddy_cn_20, 0x577489);
+    lvgl_label(main_card, "分析依据", 42, 190, &workbuddy_cn_20, 0x577489);
     lv_obj_t *reason_label = lvgl_label(main_card, s_pet_combined_reason, 42, 222, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(reason_label, 330);
-    lvgl_label(main_card, "只显示本地模板，避免乱码", 42, 292, &workbuddy_cn_20, 0x577489);
+    lvgl_label(main_card, "云端模型分析，支持企业展示", 42, 292, &workbuddy_cn_20, 0x577489);
 
     lv_obj_t *ai_card = lvgl_glass_card(scr, 556, 132, 360, 340, 28);
-    lvgl_label(ai_card, "后续接入", 44, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(ai_card, "模型接口", 46, 96, &workbuddy_cn_28, s_pet_accent);
-    lv_obj_t *hint = lvgl_label(ai_card, "豆包只返回类型，屏幕显示模板", 46, 158, &workbuddy_cn_20, 0x577489);
+    lvgl_label(ai_card, "模型能力", 44, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(ai_card, "DeepSeek 接入", 46, 96, &workbuddy_cn_28, s_pet_accent);
+    lv_obj_t *hint = lvgl_label(ai_card, "电脑代理保护密钥，屏幕显示结论", 46, 158, &workbuddy_cn_20, 0x577489);
     lvgl_label_width(hint, 260);
     lvgl_label(ai_card, s_pet_next_module, 46, 204, &workbuddy_cn_20, 0x577489);
     lv_obj_t *chip = lvgl_card(ai_card, 46, 240, 242, 50, 0xe8f8ff, 25);
     lv_obj_set_style_bg_opa(chip, LV_OPA_80, 0);
     lv_obj_set_style_border_width(chip, 2, 0);
     lv_obj_set_style_border_color(chip, lv_color_hex(s_pet_accent), 0);
-    lvgl_label(chip, "本地规则已运行", 38, 12, &workbuddy_cn_20, s_pet_accent);
+    lv_obj_t *chip_label = lvgl_label(chip, s_pet_model_tip, 30, 12, &workbuddy_cn_20, s_pet_accent);
+    lvgl_label_width(chip_label, 182);
 
     lvgl_port_unlock();
     return true;
@@ -845,7 +918,7 @@ static bool lvgl_show_pet_ai_page(void)
     lvgl_card(scr, 0, 0, LCD_H_RES, 86, 0x19afd8, 0);
     lv_obj_set_style_bg_opa(lvgl_card(scr, 0, 86, LCD_H_RES, 88, 0x8fe2f5, 0), LV_OPA_40, 0);
     lvgl_label(scr, "返回", 32, 28, &workbuddy_cn_20, 0xffffff);
-    lvgl_label(scr, "桌宠状态", 110, 24, &workbuddy_cn_28, 0xffffff);
+    lvgl_label(scr, "业务状态", 110, 24, &workbuddy_cn_28, 0xffffff);
 
     lv_obj_t *main_card = lvgl_glass_card(scr, 92, 132, 430, 340, 28);
     lvgl_label(main_card, "智能分析", 40, 34, &workbuddy_cn_28, 0x10283e);
@@ -855,7 +928,7 @@ static bool lvgl_show_pet_ai_page(void)
     lvgl_label(main_card, "依据数据", 42, 180, &workbuddy_cn_20, 0x577489);
     lv_obj_t *reason_label = lvgl_label(main_card, s_pet_combined_reason, 42, 212, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(reason_label, 330);
-    lvgl_label(main_card, "本地建议", 42, 258, &workbuddy_cn_20, 0x577489);
+    lvgl_label(main_card, "执行建议", 42, 258, &workbuddy_cn_20, 0x577489);
     lv_obj_t *tip_label = lvgl_label(main_card, s_pet_combined_tip, 42, 288, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(tip_label, 330);
 
@@ -867,16 +940,17 @@ static bool lvgl_show_pet_ai_page(void)
     lv_obj_set_style_bg_opa(pill, LV_OPA_80, 0);
     lv_obj_set_style_border_width(pill, 2, 0);
     lv_obj_set_style_border_color(pill, lv_color_hex(s_pet_accent), 0);
-    lvgl_label(pill, s_pet_last_action == WORKBUDDY_ACTION_WEATHER ? "天气推理" : "日历推理",
+    lvgl_label(pill, s_pet_last_action == WORKBUDDY_ACTION_WEATHER ? "天气推理" :
+               s_pet_last_action == WORKBUDDY_ACTION_TIME ? "日程推理" : "AI推理",
                58, 11, &workbuddy_cn_20, s_pet_accent);
 
     char service_text[32];
     snprintf(service_text, sizeof(service_text), "已服务%d次", s_pet_service_count);
-    lvgl_label(pet_card, "模型建议", 64, 270, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *model_label = lvgl_label(pet_card, "等待结构化输入", 64, 300, &workbuddy_cn_20, 0x10283e);
+    lvgl_label(pet_card, "AI来源", 64, 270, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *model_label = lvgl_label(pet_card, s_pet_model_tip, 64, 300, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(model_label, 238);
     lvgl_label(scr, service_text, 616, 488, &workbuddy_cn_20, 0x577489);
-    lvgl_label(scr, "本地智能提醒", 740, 488, &workbuddy_cn_20, 0x577489);
+    lvgl_label(scr, "企业智能助理", 740, 488, &workbuddy_cn_20, 0x577489);
 
     lvgl_port_unlock();
     return true;
@@ -890,11 +964,14 @@ static bool lvgl_show_querying_page(workbuddy_action_id_t action_id)
 
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);
-    uint32_t bg = action_id == WORKBUDDY_ACTION_WEATHER ? 0xe9f6ff : 0xf3fbf7;
-    uint32_t accent = action_id == WORKBUDDY_ACTION_WEATHER ? 0x1c7ed6 : 0x0f8a5f;
+    uint32_t bg = action_id == WORKBUDDY_ACTION_WEATHER ? 0xe9f6ff :
+                  action_id == WORKBUDDY_ACTION_TIME ? 0xf3fbf7 : 0xf4f1ff;
+    uint32_t accent = action_id == WORKBUDDY_ACTION_WEATHER ? 0x1c7ed6 :
+                      action_id == WORKBUDDY_ACTION_TIME ? 0x0f8a5f : 0x9465ff;
     lvgl_set_bg(scr, bg);
     lvgl_label(scr, "返回", 32, 28, &workbuddy_cn_20, 0x16324f);
-    lvgl_label(scr, action_id == WORKBUDDY_ACTION_WEATHER ? "天气提醒" : "日程提醒",
+    lvgl_label(scr, action_id == WORKBUDDY_ACTION_WEATHER ? "天气提醒" :
+               action_id == WORKBUDDY_ACTION_TIME ? "日程提醒" : "AI洞察",
                70, 154, &workbuddy_cn_28, accent);
     lvgl_label(scr, "加载中", 74, 232, &workbuddy_cn_28, 0x42627d);
     lvgl_card(scr, 0, 510, LCD_H_RES, 90, accent, 0);
@@ -958,7 +1035,7 @@ static bool lvgl_show_weather_result_page(const char *text)
     lvgl_label(rain_card, rain, 30, 48, &lv_font_montserrat_28, 0x10283e);
 
     lvgl_card_border(advice_card, 0xffffff, 1);
-    lvgl_label(advice_card, "桌宠判断", 30, 18, &workbuddy_cn_20, 0x577489);
+    lvgl_label(advice_card, "运营建议", 30, 18, &workbuddy_cn_20, 0x577489);
     lv_obj_t *advice_label = lvgl_label(advice_card, suggestion_cn, 30, 48, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(advice_label, 388);
 
@@ -1092,7 +1169,8 @@ static bool lvgl_show_error_page(workbuddy_action_id_t action_id)
     lv_obj_clean(scr);
     lvgl_set_bg(scr, 0xfff5f5);
     lvgl_label(scr, "返回", 32, 26, &workbuddy_cn_20, 0x5a1f1f);
-    lvgl_label(scr, action_id == WORKBUDDY_ACTION_WEATHER ? "天气错误" : "日历错误",
+    lvgl_label(scr, action_id == WORKBUDDY_ACTION_WEATHER ? "天气错误" :
+               action_id == WORKBUDDY_ACTION_TIME ? "日程错误" : "AI错误",
                72, 154, &workbuddy_cn_28, 0xc03434);
     lvgl_label(scr, "检查网络或代理", 76, 238, &workbuddy_cn_28, 0x7a4444);
     lvgl_port_unlock();
@@ -1246,7 +1324,8 @@ static void touch_task(void *arg)
                 } else if (event.result == WORKBUDDY_TOUCH_OPEN_APP && event.has_action) {
                     action_id = event.action_id;
                     ESP_LOGI(TAG, "touch x=%u y=%u -> %s", x[0], y[0],
-                             action_id == WORKBUDDY_ACTION_WEATHER ? "weather" : "calendar");
+                             action_id == WORKBUDDY_ACTION_WEATHER ? "weather" :
+                             action_id == WORKBUDDY_ACTION_TIME ? "calendar" : "ai_insight");
                     workbuddy_screen_show_querying(action_id);
                     workbuddy_enqueue_trigger("touch", action_id, action_id);
                 } else if (event.result == WORKBUDDY_TOUCH_OPEN_APP) {
@@ -1301,8 +1380,11 @@ void workbuddy_screen_show_querying(workbuddy_action_id_t action_id)
     if (action_id == WORKBUDDY_ACTION_WEATHER) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_WEATHER);
         lvgl_show_querying_page(action_id);
-    } else {
+    } else if (action_id == WORKBUDDY_ACTION_TIME) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_CALENDAR);
+        lvgl_show_querying_page(action_id);
+    } else {
+        workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_SUGGESTION);
         lvgl_show_querying_page(action_id);
     }
 }
@@ -1317,9 +1399,13 @@ void workbuddy_screen_show_result_text(workbuddy_action_id_t action_id, const ch
     if (action_id == WORKBUDDY_ACTION_WEATHER) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_WEATHER);
         lvgl_show_weather_result_page(text);
-    } else {
+    } else if (action_id == WORKBUDDY_ACTION_TIME) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_CALENDAR);
         lvgl_show_calendar_result_page(text);
+    } else {
+        update_pet_tip_from_insight(text);
+        workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_SUGGESTION);
+        lvgl_show_suggestion_page();
     }
 }
 

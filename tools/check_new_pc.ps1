@@ -54,7 +54,8 @@ $files = @(
     "partitions.csv",
     "tools\workbuddy_proxy.js",
     "start_demo.bat",
-    "build_firmware.bat"
+    "build_firmware.bat",
+    "tools\start_workbuddy_proxy.ps1"
 )
 
 foreach ($file in $files) {

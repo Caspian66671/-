@@ -1,18 +1,18 @@
-# ESP32-P4 桌宠助手 AI 展示版
+# ESP32-P4 企业智能助理 AI 展示版
 
-这是 ESP32-P4 Function EV Board 的触摸屏展示项目。当前版本面向“桌面智能陪伴宠物”比赛场景，保留稳定的本地代理方案，不走 QClaw 实时生成，展示时响应更快、更稳。
+这是 ESP32-P4 Function EV Board 的触摸屏企业展示项目。当前版本面向“边缘设备 + 企业智能决策助手”场景，通过电脑端本地代理汇总天气、日程和 DeepSeek 模型结果，再把稳定的业务洞察显示到触摸屏。
 
 运行链路：
 
 ```text
-触摸屏 -> ESP32-P4 -> WiFi -> 电脑本地代理 -> 天气/日历数据 -> LCD 显示
+触摸屏 -> ESP32-P4 -> WiFi -> 电脑本地代理 -> 天气/日程/DeepSeek -> LCD 显示
 ```
 
 ## 当前功能
 
-- `天气助手`：显示西安天气、温度、降雨概率、出行建议，并作为桌宠环境判断依据。
-- `日程提醒`：显示月份、日期、时间、农历、节假日，并作为桌宠提醒依据。
-- `智能建议`：把天气、时间、节假日、后续情绪/人脸识别结果汇总为桌宠建议。
+- `天气助手`：显示西安天气、温度、降雨概率、运营建议，并作为企业场景风险判断依据。
+- `日程提醒`：显示月份、日期、时间、农历、节假日，并作为企业排班和节奏提醒依据。
+- `AI洞察`：请求电脑端 `/insight`，在未配置 DeepSeek 时展示企业规则兜底建议，配置 API Key 后接入 DeepSeek 生成业务洞察。
 
 屏幕 UI 使用 LVGL，英文数字使用 Montserrat，中文使用项目内自定义字库：
 
@@ -29,35 +29,41 @@ tools/generate_workbuddy_fonts.js
 
 然后重新生成字库并构建。
 
-## AI 接入原则
+## DeepSeek 接入原则
 
-屏幕端只显示板端已有模板，不直接显示大模型返回的任意长文本。这样可以避免缺字、乱码和展示现场网络波动。
+DeepSeek API Key 只放在电脑端环境变量里，不写入 ESP32 固件，也不提交到仓库。ESP32-P4 只访问同一 WiFi 下的本地代理，例如：
 
-推荐后续让外部模型或识别模块返回结构化字段：
+```text
+http://电脑IP:8787/insight
+```
+
+代理会调用 DeepSeek `/chat/completions` 并要求模型返回结构化 JSON，再整理为屏幕端稳定显示的企业洞察字段：
 
 ```json
 {
-  "face": "detected",
-  "emotion": "tired",
-  "advice_type": "rest"
+  "insight": "FOCUS",
+  "risk": "LOW",
+  "basis": "WEATHER_STABLE WORK_HOUR"
 }
 ```
 
-ESP32-P4 端再映射为固定模板，例如：
+ESP32-P4 端显示为企业展示话术，例如：
 
 ```text
-检测疲惫建议休息
-雨天记得带伞
-今天适合专注学习
+适合推进重点任务
+天气风险需关注
+运营状态稳定
 ```
 
-已经预留的屏幕接口：
+配置 DeepSeek API Key：
 
-```c
-workbuddy_screen_update_ai_context(WORKBUDDY_FACE_DETECTED, WORKBUDDY_EMOTION_TIRED);
+```powershell
+$env:DEEPSEEK_API_KEY="你的 DeepSeek Key"
+$env:DEEPSEEK_MODEL="deepseek-v4-flash"
+.\start_demo.bat
 ```
 
-后续人脸识别、情绪识别模块只需要调用这个接口或通过串口/HTTP 转成同样的枚举即可。
+如需更强模型，可以把 `DEEPSEEK_MODEL` 改为 `deepseek-v4-pro`。
 
 ## 启动电脑代理
 
@@ -87,6 +93,7 @@ http://0.0.0.0:8787
 /health
 /weather
 /time
+/insight
 ```
 
 ## 新电脑从零拉取
@@ -190,14 +197,14 @@ idf.py menuconfig
 
 - `main/workbuddy_main.c`：主入口，初始化 WiFi、LCD、触摸、业务逻辑。
 - `main/workbuddy_display_test.c`：屏幕 UI 和触摸交互。
-- `main/workbuddy_actions.c`：天气/日历请求和解析。
+- `main/workbuddy_actions.c`：天气/日程/AI 洞察请求配置。
 - `main/workbuddy_launcher.c`：桌面图标入口。
-- `tools/workbuddy_proxy.js`：电脑端本地代理，提供天气和日历数据。
+- `tools/workbuddy_proxy.js`：电脑端本地代理，提供天气、日程和 DeepSeek 企业洞察数据。
 - `tools/generate_workbuddy_fonts.js`：生成中文 LVGL 字库。
 - `start_demo.bat`：一键启动并检查代理。
 
 ## 后续优化方向
 
-1. 把情绪识别、人脸识别结果接入 `workbuddy_screen_update_ai_context()`。
-2. 给智能建议增加串口/HTTP 输入，方便另外两位同学联调。
-3. 把本地代理扩展为可选 Doubao 结构化建议生成，但保留本地固定模板作为比赛兜底。
+1. 接入企业业务数据接口，例如客流、排班、设备状态。
+2. 给 `/insight` 增加更多业务字段，让 DeepSeek 生成更贴近企业场景的洞察。
+3. 增加后台配置页，方便现场切换 DeepSeek Key、模型和展示城市。

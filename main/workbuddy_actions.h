@@ -3,6 +3,7 @@
 typedef enum {
     WORKBUDDY_ACTION_WEATHER = 0,
     WORKBUDDY_ACTION_TIME,
+    WORKBUDDY_ACTION_AI_INSIGHT,
     WORKBUDDY_ACTION_COUNT,
 } workbuddy_action_id_t;
 

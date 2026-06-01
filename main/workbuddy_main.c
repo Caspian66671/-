@@ -359,7 +359,7 @@ void app_main(void)
     wifi_init_sta();
     xTaskCreate(proxy_warmup_task, "proxy_warmup", 4096, NULL, 5, NULL);
 
-    ESP_LOGI(TAG, "Ready. Touch left=weather, right=time/date/lunar/holiday via fast proxy.");
+    ESP_LOGI(TAG, "Ready. Touch launcher apps for weather, schedule, and AI insight via fast proxy.");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));

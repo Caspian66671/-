@@ -104,3 +104,7 @@ Write-Host ""
 Write-Host "Time:"
 Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/time" -TimeoutSec 3 |
     Select-Object -ExpandProperty Content
+Write-Host ""
+Write-Host "Enterprise insight:"
+Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/insight" -TimeoutSec 12 |
+    Select-Object -ExpandProperty Content

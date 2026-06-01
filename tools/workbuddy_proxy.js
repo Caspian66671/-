@@ -11,6 +11,9 @@ function portFromArgs() {
 const PORT = Number(process.env.PORT || portFromArgs() || 8787);
 const XIAN_LAT = 34.3416;
 const XIAN_LON = 108.9398;
+const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -62,7 +65,7 @@ function nearestRainProbability(data) {
   return Number.isFinite(probs[bestIndex]) ? `${probs[bestIndex]}%` : "UNKNOWN";
 }
 
-async function weatherText() {
+async function weatherData() {
   try {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", String(XIAN_LAT));
@@ -81,22 +84,30 @@ async function weatherText() {
     const rain = nearestRainProbability(data);
     const rainNumber = Number(String(rain).replace("%", ""));
     const advice = adviceFor(temp, Number.isFinite(rainNumber) ? rainNumber : 0, weather);
-
-    return [
-      `TEMP: ${Number.isFinite(temp) ? `${temp}C` : "UNKNOWN"}`,
-      `WEATHER: ${weather}`,
-      `RAIN: ${rain}`,
-      `ADVICE: ${advice}`,
-    ].join("\n");
+    return {
+      temp: Number.isFinite(temp) ? `${temp}C` : "UNKNOWN",
+      weather,
+      rain,
+      advice,
+    };
   } catch (error) {
     console.warn(`weather fallback: ${error.message}`);
-    return [
-      "TEMP: UNKNOWN",
-      "WEATHER: UNKNOWN",
-      "RAIN: UNKNOWN",
-      "ADVICE: CHECK_NETWORK",
-    ].join("\n");
+    return {
+      temp: "UNKNOWN",
+      weather: "UNKNOWN",
+      rain: "UNKNOWN",
+      advice: "CHECK_NETWORK",
+    };
   }
+}
+
+function weatherText(data) {
+  return [
+    `TEMP: ${data.temp}`,
+    `WEATHER: ${data.weather}`,
+    `RAIN: ${data.rain}`,
+    `ADVICE: ${data.advice}`,
+  ].join("\n");
 }
 
 function holidayFor(date) {
@@ -165,26 +176,158 @@ function lunarText(date) {
   }
 }
 
-function timeText() {
+function timeData() {
   const now = beijingNow();
-  const time = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-  const date = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  return {
+    time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+    date: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
+    lunar: lunarText(now),
+    holiday: holidayFor(now),
+    hour: now.getHours(),
+  };
+}
+
+function timeText(data) {
   return [
-    `TIME: ${time}`,
-    `DATE: ${date}`,
-    `LUNAR: ${lunarText(now)}`,
-    `HOLIDAY: ${holidayFor(now)}`,
+    `TIME: ${data.time}`,
+    `DATE: ${data.date}`,
+    `LUNAR: ${data.lunar}`,
+    `HOLIDAY: ${data.holiday}`,
+  ].join("\n");
+}
+
+function riskFromWeather(weather, rain) {
+  const rainNumber = Number(String(rain).replace("%", ""));
+  if (weather === "RAIN" || Number.isFinite(rainNumber) && rainNumber >= 50) return "HIGH";
+  if (weather === "UNKNOWN") return "MEDIUM";
+  return "LOW";
+}
+
+function localInsight(weather, time) {
+  const risk = riskFromWeather(weather.weather, weather.rain);
+  if (risk === "HIGH") {
+    return {
+      model: "LOCAL",
+      insight: "RISK",
+      risk,
+      basis: "WEATHER_RAIN TIME_STATUS LOCAL_RULE",
+    };
+  }
+  if (time.hour >= 9 && time.hour < 18) {
+    return {
+      model: "LOCAL",
+      insight: "FOCUS",
+      risk,
+      basis: "WEATHER_STABLE WORK_HOUR LOCAL_RULE",
+    };
+  }
+  return {
+    model: "LOCAL",
+    insight: "STABLE",
+    risk,
+    basis: "WEATHER_STABLE TIME_STATUS LOCAL_RULE",
+  };
+}
+
+function normalizeChoice(value, allowed, fallback) {
+  const upper = String(value || "").toUpperCase();
+  return allowed.includes(upper) ? upper : fallback;
+}
+
+function parseJsonContent(content) {
+  const text = String(content || "").trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(text.slice(start, end + 1));
+    }
+    return {};
+  }
+}
+
+async function deepseekInsight(weather, time) {
+  if (!DEEPSEEK_API_KEY) {
+    return localInsight(weather, time);
+  }
+
+  try {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        temperature: 0.2,
+        max_tokens: 120,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是企业展厅里的边缘智能业务助理。只返回 JSON，不要解释。字段 insight 只能是 CUSTOMER/RISK/EFFICIENCY/FOCUS/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              weather,
+              time,
+              task: "根据天气、时间和日程状态，为企业展示屏生成一句经营洞察类别。",
+            }),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!response.ok) throw new Error(`deepseek status ${response.status}`);
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const parsed = parseJsonContent(content);
+    return {
+      model: "DEEPSEEK",
+      insight: normalizeChoice(parsed.insight, ["CUSTOMER", "RISK", "EFFICIENCY", "FOCUS", "STABLE"], "STABLE"),
+      risk: normalizeChoice(parsed.risk, ["LOW", "MEDIUM", "HIGH"], "LOW"),
+      basis: String(parsed.basis || "DEEPSEEK WEATHER TIME").replace(/[\r\n:]/g, " ").slice(0, 80),
+    };
+  } catch (error) {
+    console.warn(`deepseek fallback: ${error.message}`);
+    const fallback = localInsight(weather, time);
+    return {
+      ...fallback,
+      basis: `${fallback.basis} DEEPSEEK_FALLBACK`,
+    };
+  }
+}
+
+function insightText(data) {
+  return [
+    `MODEL: ${data.model}`,
+    `INSIGHT: ${data.insight}`,
+    `RISK: ${data.risk}`,
+    `BASIS: ${data.basis}`,
   ].join("\n");
 }
 
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === "/weather") {
-      send(res, 200, await weatherText());
+      send(res, 200, weatherText(await weatherData()));
       return;
     }
     if (req.url === "/time") {
-      send(res, 200, timeText());
+      send(res, 200, timeText(timeData()));
+      return;
+    }
+    if (req.url === "/insight") {
+      const weather = await weatherData();
+      const time = timeData();
+      send(res, 200, insightText(await deepseekInsight(weather, time)));
       return;
     }
     if (req.url === "/health") {
@@ -198,6 +341,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`WorkBuddy quick proxy listening on http://0.0.0.0:${PORT}`);
-  console.log("Endpoints: /weather /time /health");
+  console.log(`WorkBuddy enterprise proxy listening on http://0.0.0.0:${PORT}`);
+  console.log("Endpoints: /weather /time /insight /health");
+  console.log(DEEPSEEK_API_KEY ? `DeepSeek enabled: ${DEEPSEEK_MODEL}` : "DeepSeek not configured, using enterprise fallback.");
 });

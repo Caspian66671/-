@@ -13,6 +13,12 @@ static const workbuddy_action_t actions[] = {
         .title_json = "\\u67e5\\u8be2\\u65f6\\u95f4",
         .path = "/time",
     },
+    [WORKBUDDY_ACTION_AI_INSIGHT] = {
+        .id = WORKBUDDY_ACTION_AI_INSIGHT,
+        .name = "ai_insight",
+        .title_json = "AI\\u6d1e\\u5bdf",
+        .path = "/insight",
+    },
 };
 
 const workbuddy_action_t *workbuddy_get_action(workbuddy_action_id_t id)

@@ -21,7 +21,7 @@ static const launcher_app_t s_apps[] = {
     {.screen = WORKBUDDY_SCREEN_PET, .action_id = WORKBUDDY_ACTION_TIME, .has_action = false, .x = 66, .y = 132, .w = 348, .h = 344},
     {.screen = WORKBUDDY_SCREEN_WEATHER, .action_id = WORKBUDDY_ACTION_WEATHER, .has_action = true, .x = 500, .y = 160, .w = 142, .h = 250},
     {.screen = WORKBUDDY_SCREEN_CALENDAR, .action_id = WORKBUDDY_ACTION_TIME, .has_action = true, .x = 644, .y = 160, .w = 142, .h = 250},
-    {.screen = WORKBUDDY_SCREEN_SUGGESTION, .action_id = WORKBUDDY_ACTION_TIME, .has_action = false, .x = 788, .y = 160, .w = 142, .h = 250},
+    {.screen = WORKBUDDY_SCREEN_SUGGESTION, .action_id = WORKBUDDY_ACTION_AI_INSIGHT, .has_action = true, .x = 788, .y = 160, .w = 142, .h = 250},
 };
 
 static bool point_in_rect(uint16_t x, uint16_t y, const launcher_app_t *app)
