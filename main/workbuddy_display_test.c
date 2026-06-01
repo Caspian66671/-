@@ -58,12 +58,10 @@ static workbuddy_action_id_t s_pet_last_action = WORKBUDDY_ACTION_TIME;
 static char s_pet_weather_summary[96] = "天气待更新";
 static char s_pet_calendar_summary[96] = "日程待更新";
 static char s_pet_combined_reason[256] = "天气和日程待更新";
-static char s_pet_combined_tip[256] = "先喝水，再开始";
+static char s_pet_combined_tip[256] = "科研前先喝水";
 static const char *s_pet_weather_scene = "天气待更新";
 static const char *s_pet_time_scene = "日程待更新";
 static const char *s_pet_emotion_scene = "状态待更新";
-static const char *s_pet_next_module = "记得喝水活动一下";
-static workbuddy_face_state_t s_face_state = WORKBUDDY_FACE_UNKNOWN;
 static workbuddy_emotion_state_t s_emotion_state = WORKBUDDY_EMOTION_UNKNOWN;
 
 static void copy_field_value(const char *text, const char *key, char *out, size_t out_size);
@@ -262,18 +260,6 @@ static void refresh_pet_combined_tip(void)
 
 static void update_pet_from_ai_context(void)
 {
-    switch (s_face_state) {
-    case WORKBUDDY_FACE_DETECTED:
-        s_pet_next_module = "陪伴状态已接入";
-        break;
-    case WORKBUDDY_FACE_NOT_DETECTED:
-        s_pet_next_module = "陪伴状态未接入";
-        break;
-    default:
-        s_pet_next_module = "记得喝水活动一下";
-        break;
-    }
-
     switch (s_emotion_state) {
     case WORKBUDDY_EMOTION_HAPPY:
         s_pet_emotion_scene = "陪伴状态积极";
@@ -603,7 +589,6 @@ static void update_pet_tip_from_insight(const char *text)
     s_pet_weather_scene = ascii_contains_ci(basis, "WEATHER_RAIN") ? "天气风险" : "天气稳定";
     s_pet_time_scene = (ascii_contains_ci(basis, "HOLIDAY") || ascii_contains_ci(basis, "WEEKEND")) ? "休息节奏" : "科研节奏";
     s_pet_emotion_scene = "研伴建议";
-    s_pet_next_module = "科研生活都照顾";
     s_pet_model_tip = ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
 
     if (ascii_contains_ci(risk, "HIGH")) {
@@ -926,15 +911,11 @@ static bool lvgl_show_suggestion_page(void)
     lvgl_label(main_card, "分析依据", 42, 190, &workbuddy_cn_20, 0x577489);
     lv_obj_t *reason_label = lvgl_label(main_card, s_pet_combined_reason, 42, 222, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(reason_label, 330);
-    lvgl_label(main_card, "小提醒会随天气和时间变化", 42, 292, &workbuddy_cn_20, 0x577489);
 
     lv_obj_t *ai_card = lvgl_glass_card(scr, 556, 132, 360, 340, 28);
     lvgl_label(ai_card, "AI研伴", 44, 34, &workbuddy_cn_28, 0x10283e);
     lvgl_label(ai_card, "DeepSeek 已接入", 46, 96, &workbuddy_cn_28, s_pet_accent);
-    lv_obj_t *hint = lvgl_label(ai_card, "按时间提醒吃饭、科研、休息", 46, 158, &workbuddy_cn_20, 0x577489);
-    lvgl_label_width(hint, 260);
-    lvgl_label(ai_card, s_pet_next_module, 46, 204, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *chip = lvgl_card(ai_card, 46, 240, 242, 50, 0xe8f8ff, 25);
+    lv_obj_t *chip = lvgl_card(ai_card, 46, 176, 242, 50, 0xe8f8ff, 25);
     lv_obj_set_style_bg_opa(chip, LV_OPA_80, 0);
     lv_obj_set_style_border_width(chip, 2, 0);
     lv_obj_set_style_border_color(chip, lv_color_hex(s_pet_accent), 0);
@@ -1455,7 +1436,7 @@ void workbuddy_screen_show_error(workbuddy_action_id_t action_id)
 
 void workbuddy_screen_update_ai_context(workbuddy_face_state_t face, workbuddy_emotion_state_t emotion)
 {
-    s_face_state = face;
+    (void)face;
     s_emotion_state = emotion;
     update_pet_from_ai_context();
 }
