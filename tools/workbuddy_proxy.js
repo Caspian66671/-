@@ -208,9 +208,41 @@ function localInsight(weather, time) {
   if (risk === "HIGH") {
     return {
       model: "LOCAL",
-      insight: "RISK",
+      insight: "UMBRELLA",
       risk,
       basis: "WEATHER_RAIN TIME_STATUS LOCAL_RULE",
+    };
+  }
+  if (weather.advice === "HOT") {
+    return {
+      model: "LOCAL",
+      insight: "HYDRATE",
+      risk,
+      basis: "WEATHER_HOT TIME_STATUS LOCAL_RULE",
+    };
+  }
+  if (time.hour >= 11 && time.hour < 14) {
+    return {
+      model: "LOCAL",
+      insight: "BREAK",
+      risk,
+      basis: "NOON TIME_STATUS LOCAL_RULE",
+    };
+  }
+  if (time.hour >= 18 && time.hour < 23) {
+    return {
+      model: "LOCAL",
+      insight: "PLAN",
+      risk,
+      basis: "EVENING TIME_STATUS LOCAL_RULE",
+    };
+  }
+  if (time.hour >= 23 || time.hour < 6) {
+    return {
+      model: "LOCAL",
+      insight: "REST",
+      risk,
+      basis: "LATE_NIGHT TIME_STATUS LOCAL_RULE",
     };
   }
   if (time.hour >= 9 && time.hour < 18) {
@@ -223,7 +255,7 @@ function localInsight(weather, time) {
   }
   return {
     model: "LOCAL",
-    insight: "STABLE",
+    insight: "HYDRATE",
     risk,
     basis: "WEATHER_STABLE TIME_STATUS LOCAL_RULE",
   };
@@ -271,14 +303,14 @@ async function deepseekInsight(weather, time) {
           {
             role: "system",
             content:
-              "你是一个企业级AI桌宠的决策模块。只返回 JSON，不要解释。字段 insight 只能是 CARE/RISK/RHYTHM/FOCUS/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
+              "你是一个贴心的桌面生活助理。只返回 JSON，不要解释。字段 insight 只能是 UMBRELLA/HYDRATE/BREAK/FOCUS/PLAN/REST/SUN/STABLE，risk 只能是 LOW/MEDIUM/HIGH，basis 用英文短语。",
           },
           {
             role: "user",
             content: JSON.stringify({
               weather,
               time,
-              task: "根据天气、时间和日程状态，为桌面AI陪伴助手生成一个陪伴洞察类别。",
+              task: "根据天气、时间和日程状态，给用户一个像生活助理一样的简短建议类别。",
             }),
           },
         ],
@@ -291,7 +323,7 @@ async function deepseekInsight(weather, time) {
     const parsed = parseJsonContent(content);
     return {
       model: "DEEPSEEK",
-      insight: normalizeChoice(parsed.insight, ["CARE", "RISK", "RHYTHM", "FOCUS", "STABLE"], "STABLE"),
+      insight: normalizeChoice(parsed.insight, ["UMBRELLA", "HYDRATE", "BREAK", "FOCUS", "PLAN", "REST", "SUN", "STABLE"], "STABLE"),
       risk: normalizeChoice(parsed.risk, ["LOW", "MEDIUM", "HIGH"], "LOW"),
       basis: String(parsed.basis || "DEEPSEEK WEATHER TIME").replace(/[\r\n:]/g, " ").slice(0, 80),
     };
