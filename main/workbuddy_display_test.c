@@ -924,11 +924,25 @@ static void lvgl_draw_ai_app_icon(lv_obj_t *parent, int x, int y)
     lv_obj_set_style_border_width(icon, 1, 0);
     lv_obj_set_style_border_color(icon, lv_color_hex(0xc9b8ff), 0);
 
-    lvgl_card(icon, 22, 22, 10, 10, 0xffffff, LV_RADIUS_CIRCLE);
-    lvgl_card(icon, 74, 24, 8, 8, 0xffffff, LV_RADIUS_CIRCLE);
-    lvgl_card(icon, 26, 74, 8, 8, 0xffffff, LV_RADIUS_CIRCLE);
-    lvgl_center_label(icon, "AI", 0, 34, 104, &lv_font_montserrat_32, 0xffffff);
-    lvgl_center_label(icon, "研伴", 0, 72, 104, &workbuddy_cn_20, 0xf3efff);
+    lvgl_center_label(icon, "AI", 0, 28, 104, &lv_font_montserrat_32, 0xffffff);
+    lvgl_center_label(icon, "研伴", 0, 68, 104, &workbuddy_cn_20, 0xf3efff);
+}
+
+static void lvgl_draw_pet_avatar(lv_obj_t *parent, int x, int y)
+{
+    lv_obj_t *halo = lvgl_card(parent, x, y, 122, 122, 0xe8f8ff, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_bg_opa(halo, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(halo, 2, 0);
+    lv_obj_set_style_border_color(halo, lv_color_hex(0xbbeeff), 0);
+
+    lv_obj_t *face = lvgl_card(parent, x + 22, y + 20, 78, 78, 0xffd23f, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_shadow_width(face, 10, 0);
+    lv_obj_set_style_shadow_opa(face, LV_OPA_20, 0);
+    lvgl_card(parent, x + 43, y + 48, 9, 9, 0x10283e, LV_RADIUS_CIRCLE);
+    lvgl_card(parent, x + 72, y + 48, 9, 9, 0x10283e, LV_RADIUS_CIRCLE);
+    lvgl_card(parent, x + 51, y + 70, 22, 6, 0x10283e, 3);
+    lvgl_card(parent, x + 34, y + 62, 12, 7, 0xffb8a8, LV_RADIUS_CIRCLE);
+    lvgl_card(parent, x + 78, y + 62, 12, 7, 0xffb8a8, LV_RADIUS_CIRCLE);
 }
 
 static void lvgl_init_display(void)
@@ -983,23 +997,24 @@ static bool lvgl_show_launcher(void)
     lvgl_label(scr, "AI桌宠助手", 48, 22, &workbuddy_cn_28, 0xffffff);
 
     lv_obj_t *pet_card = lvgl_glass_card(scr, 66, 132, 348, 344, 28);
-    lvgl_label(pet_card, "小伙伴在线", 34, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(pet_card, "今日陪伴", 36, 92, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *tip_label = lvgl_label(pet_card, s_pet_tip, 36, 126, &workbuddy_cn_20, 0x10283e);
+    lvgl_label(pet_card, "小伙伴在线", 32, 30, &workbuddy_cn_28, 0x10283e);
+    lvgl_card(pet_card, 266, 42, 10, 10, 0x2ecc71, LV_RADIUS_CIRCLE);
+    lvgl_label(pet_card, "在线", 284, 35, &workbuddy_cn_20, 0x2c8f57);
+    lvgl_label(pet_card, "今日建议", 34, 88, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *tip_label = lvgl_label(pet_card, s_pet_tip, 34, 118, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(tip_label, 276);
-    lvgl_card(pet_card, 42, 212, 100, 100, 0xffd23f, 50);
-    lvgl_card(pet_card, 110, 250, 108, 52, 0xffffff, 26);
-    lvgl_card(pet_card, 90, 226, 68, 68, 0xffffff, LV_RADIUS_CIRCLE);
-    lv_obj_t *state_pill = lvgl_card(pet_card, 188, 204, 120, 40, 0xe8f8ff, 20);
+
+    lvgl_draw_pet_avatar(pet_card, 34, 184);
+    lv_obj_t *state_pill = lvgl_card(pet_card, 186, 184, 126, 42, 0xe8f8ff, 21);
     lv_obj_set_style_bg_opa(state_pill, LV_OPA_80, 0);
     lv_obj_set_style_border_width(state_pill, 2, 0);
     lv_obj_set_style_border_color(state_pill, lv_color_hex(s_pet_accent), 0);
-    lv_obj_t *state_label = lvgl_label(state_pill, s_pet_state, 12, 9, &workbuddy_cn_20, s_pet_accent);
+    lv_obj_t *state_label = lvgl_label(state_pill, s_pet_state, 16, 10, &workbuddy_cn_20, s_pet_accent);
     lvgl_label_width(state_label, 96);
     char service_text[24];
     snprintf(service_text, sizeof(service_text), "服务%d次", s_pet_service_count);
-    lvgl_label(pet_card, service_text, 196, 258, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *analysis_btn = lvgl_card(pet_card, 174, 292, 142, 38, 0xe8f8ff, 19);
+    lvgl_label(pet_card, service_text, 194, 240, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *analysis_btn = lvgl_card(pet_card, 180, 282, 142, 38, 0xe8f8ff, 19);
     lv_obj_set_style_bg_opa(analysis_btn, LV_OPA_80, 0);
     lv_obj_set_style_border_width(analysis_btn, 2, 0);
     lv_obj_set_style_border_color(analysis_btn, lv_color_hex(s_pet_accent), 0);
