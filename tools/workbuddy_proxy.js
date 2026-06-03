@@ -451,6 +451,21 @@ function insightText(data) {
   ].join("\n");
 }
 
+function edgeContextText(weather, time) {
+  return [
+    `WEATHER: ${weather.weather}`,
+    `TEMP: ${weather.temp}`,
+    `RAIN: ${weather.rain}`,
+    `ADVICE: ${weather.advice}`,
+    `TIME: ${time.time}`,
+    `DATE: ${time.date}`,
+    `LUNAR: ${time.lunar}`,
+    `HOLIDAY: ${time.holiday}`,
+    `HOUR: ${time.hour}`,
+    `DAY_TYPE: ${time.dayType}`,
+  ].join("\n");
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === "/weather") {
@@ -467,6 +482,12 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, insightText(await deepseekInsight(weather, time)));
       return;
     }
+    if (req.url === "/edge-context") {
+      const weather = await weatherData();
+      const time = timeData();
+      send(res, 200, edgeContextText(weather, time));
+      return;
+    }
     if (req.url === "/health") {
       send(res, 200, "OK PET");
       return;
@@ -479,6 +500,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`WorkBuddy DeepSeek pet proxy listening on http://0.0.0.0:${PORT}`);
-  console.log("Endpoints: /weather /time /insight /health");
+  console.log("Endpoints: /weather /time /edge-context /insight /health");
   console.log(DEEPSEEK_API_KEY ? `DeepSeek enabled: ${DEEPSEEK_MODEL}` : "DeepSeek not configured, using local pet fallback.");
 });

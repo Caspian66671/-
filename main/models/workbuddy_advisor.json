@@ -1,0 +1,306 @@
+{
+    "configs": {
+        "/net/net.0/Gemm": {
+            "onnx::Gemm_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 1801837638,
+                "dominator": 1801837638
+            },
+            "net.0.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": false,
+                    "PER_CHANNEL": true,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 1632215537,
+                "dominator": 1632215537
+            },
+            "net.0.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": false,
+                    "PER_CHANNEL": true,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 1361100016,
+                "dominator": 1361100016
+            },
+            "/net/net.1/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 813411845,
+                "dominator": 813411845
+            }
+        },
+        "/net/net.2/Gemm": {
+            "/net/net.1/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "OVERLAPPED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 1392240820,
+                "dominator": 813411845
+            },
+            "net.2.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": false,
+                    "PER_CHANNEL": true,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 2870916263,
+                "dominator": 2870916263
+            },
+            "net.2.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": false,
+                    "PER_CHANNEL": true,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 1153162446,
+                "dominator": 1153162446
+            },
+            "7": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 2936258649,
+                "dominator": 2936258649
+            }
+        }
+    },
+    "dispatchings": {
+        "/net/net.0/Gemm": "ESPDL_INT8",
+        "/net/net.2/Gemm": "ESPDL_INT8"
+    },
+    "values": {
+        "1801837638": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "1632215537": {
+            "scale": [
+                0.015625,
+                0.0625,
+                0.015625,
+                0.015625,
+                0.00390625,
+                0.0625,
+                0.03125,
+                0.0625,
+                0.03125,
+                0.03125,
+                0.03125,
+                0.0625,
+                0.015625,
+                0.015625,
+                0.0625,
+                0.015625
+            ],
+            "zero_point": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        "1361100016": {
+            "scale": [
+                0.0001220703125,
+                0.00048828125,
+                0.0001220703125,
+                0.0001220703125,
+                3.0517578125e-05,
+                0.00048828125,
+                0.000244140625,
+                0.00048828125,
+                0.000244140625,
+                0.000244140625,
+                0.000244140625,
+                0.00048828125,
+                0.0001220703125,
+                0.0001220703125,
+                0.00048828125,
+                0.0001220703125
+            ],
+            "zero_point": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        "813411845": {
+            "scale": 0.0625,
+            "zero_point": 0.0
+        },
+        "2870916263": {
+            "scale": [
+                0.03125,
+                0.0625,
+                0.03125,
+                0.0625,
+                0.125,
+                0.03125,
+                0.03125,
+                0.0625,
+                0.0625,
+                0.015625,
+                0.125,
+                0.015625
+            ],
+            "zero_point": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        "1153162446": {
+            "scale": [
+                0.001953125,
+                0.00390625,
+                0.001953125,
+                0.00390625,
+                0.0078125,
+                0.001953125,
+                0.001953125,
+                0.00390625,
+                0.00390625,
+                0.0009765625,
+                0.0078125,
+                0.0009765625
+            ],
+            "zero_point": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        "2936258649": {
+            "scale": 0.5,
+            "zero_point": 0.0
+        }
+    }
+}

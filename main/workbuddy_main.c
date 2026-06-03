@@ -21,6 +21,7 @@
 #include "nvs_flash.h"
 #include "workbuddy_actions.h"
 #include "workbuddy_display_test.h"
+#include "workbuddy_edge_advisor.h"
 #include "workbuddy_triggers.h"
 
 static const char *TAG = "workbuddy";
@@ -288,7 +289,19 @@ static void request_proxy_action(const workbuddy_action_t *action)
             ESP_LOGI(TAG, "Proxy response collected: %s", proxy_response.text);
         }
         if (status_code >= 200 && status_code < 300 && proxy_response.len > 0) {
-            workbuddy_screen_show_result_text(action->id, proxy_response.text);
+            if (action->id == WORKBUDDY_ACTION_AI_INSIGHT) {
+                char advisor_text[PROXY_RESPONSE_MAX_LEN];
+                if (workbuddy_edge_advisor_infer_text(proxy_response.text,
+                                                       advisor_text,
+                                                       sizeof(advisor_text))) {
+                    ESP_LOGI(TAG, "Edge advisor result: %s", advisor_text);
+                    workbuddy_screen_show_result_text(action->id, advisor_text);
+                } else {
+                    workbuddy_screen_show_error(action->id);
+                }
+            } else {
+                workbuddy_screen_show_result_text(action->id, proxy_response.text);
+            }
         } else {
             workbuddy_screen_show_error(action->id);
         }
@@ -355,6 +368,7 @@ void app_main(void)
 
     init_trigger_queue();
     workbuddy_start_screen_ui();
+    workbuddy_edge_advisor_init();
     wifi_init_sta();
     xTaskCreate(proxy_warmup_task, "proxy_warmup", 4096, NULL, 5, NULL);
 

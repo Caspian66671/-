@@ -17,7 +17,7 @@ static const workbuddy_action_t actions[] = {
         .id = WORKBUDDY_ACTION_AI_INSIGHT,
         .name = "ai_insight",
         .title_json = "AI\\u6d1e\\u5bdf",
-        .path = "/insight",
+        .path = "/edge-context",
     },
 };
 

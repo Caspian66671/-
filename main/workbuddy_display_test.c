@@ -559,6 +559,12 @@ static const char *enterprise_basis_text(const char *basis, const char *model)
     if (ascii_contains_ci(model, "DEEPSEEK")) {
         return "DeepSeek研判  当前时间  科研节奏";
     }
+    if (ascii_contains_ci(model, "ESP-DL")) {
+        return "ESP-DL本地推理  天气日历  科研节奏";
+    }
+    if (ascii_contains_ci(model, "EDGE-INT8")) {
+        return "本地量化推理  天气日历  科研节奏";
+    }
     if (ascii_contains_ci(basis, "HOLIDAY") || ascii_contains_ci(basis, "WEEKEND")) {
         return "节假日  当前时间  休息运动";
     }
@@ -589,7 +595,9 @@ static void update_pet_tip_from_insight(const char *text)
     s_pet_weather_scene = ascii_contains_ci(basis, "WEATHER_RAIN") ? "天气风险" : "天气稳定";
     s_pet_time_scene = (ascii_contains_ci(basis, "HOLIDAY") || ascii_contains_ci(basis, "WEEKEND")) ? "休息节奏" : "科研节奏";
     s_pet_emotion_scene = "研伴建议";
-    s_pet_model_tip = ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
+    s_pet_model_tip = ascii_contains_ci(model, "ESP-DL") ? "ESP-DL 本地推理" :
+                      ascii_contains_ci(model, "EDGE-INT8") ? "本地量化推理" :
+                      ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
 
     if (ascii_contains_ci(risk, "HIGH")) {
         s_pet_state = "贴心提醒";
@@ -913,8 +921,8 @@ static bool lvgl_show_suggestion_page(void)
     lvgl_label_width(reason_label, 330);
 
     lv_obj_t *ai_card = lvgl_glass_card(scr, 556, 132, 360, 340, 28);
-    lvgl_label(ai_card, "AI研伴", 44, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(ai_card, "DeepSeek 已接入", 46, 96, &workbuddy_cn_28, s_pet_accent);
+    lvgl_label(ai_card, "边缘AI", 44, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(ai_card, "ESP-DL 本地推理", 46, 96, &workbuddy_cn_28, s_pet_accent);
     lv_obj_t *chip = lvgl_card(ai_card, 46, 176, 242, 50, 0xe8f8ff, 25);
     lv_obj_set_style_bg_opa(chip, LV_OPA_80, 0);
     lv_obj_set_style_border_width(chip, 2, 0);
