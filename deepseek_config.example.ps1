@@ -1,4 +1,4 @@
 # Copy this file to deepseek_config.ps1 and fill in your key.
 # deepseek_config.ps1 is ignored by Git and will not be uploaded.
 $env:DEEPSEEK_API_KEY = "sk-please-replace-me"
-$env:DEEPSEEK_MODEL = "deepseek-v4-flash"
+$env:DEEPSEEK_MODEL = "deepseek-chat"

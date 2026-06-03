@@ -8,9 +8,9 @@ if ([string]::IsNullOrWhiteSpace($key)) {
     exit 1
 }
 
-$model = Read-Host "Model [deepseek-v4-flash]"
+$model = Read-Host "Model [deepseek-chat]"
 if ([string]::IsNullOrWhiteSpace($model)) {
-    $model = "deepseek-v4-flash"
+    $model = "deepseek-chat"
 }
 
 Set-Content -Encoding UTF8 -Path $ConfigPath -Value @(
