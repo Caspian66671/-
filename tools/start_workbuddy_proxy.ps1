@@ -49,13 +49,24 @@ function Test-Proxy {
     }
 }
 
+function Test-DeepSeekConfigured {
+    return -not [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)
+}
+
 function Test-EnterpriseProxy {
     try {
         $health = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/health" -TimeoutSec 2
         $insight = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/insight" -TimeoutSec 15
-        return ($health.Content.Trim() -eq "OK PET" -and
-                $insight.Content -like "*MODEL:*" -and
-                $insight.Content -like "*INSIGHT:*")
+        $basicOk = ($health.Content.Trim() -eq "OK PET" -and
+                    $insight.Content -like "*MODEL:*" -and
+                    $insight.Content -like "*INSIGHT:*")
+        if (-not $basicOk) {
+            return $false
+        }
+        if (Test-DeepSeekConfigured) {
+            return ($insight.Content -like "*MODEL: DEEPSEEK*")
+        }
+        return $true
     } catch {
         return $false
     }
@@ -139,7 +150,12 @@ if (-not (Test-Proxy)) {
 }
 
 if (-not (Test-EnterpriseProxy)) {
-    Write-Host "Proxy is running, but /insight is not available. Check proxy.err.log."
+    if (Test-DeepSeekConfigured) {
+        Write-Host "Proxy is running, but DeepSeek is not connected."
+        Write-Host "Check the API key, model name, network, or proxy.err.log."
+    } else {
+        Write-Host "Proxy is running, but /insight is not available. Check proxy.err.log."
+    }
     if (Test-Path $ErrLog) {
         Get-Content $ErrLog -Tail 20
     }

@@ -89,6 +89,14 @@ start_demo.bat
 
 ESP32-P4 的 AI 按钮现在请求 `/edge-context`，只取天气/日历原始上下文，然后在板端本地推理。`/insight` 仍保留给 DeepSeek 云端增强演示。
 
+首次接入 DeepSeek 时双击：
+
+```text
+set_deepseek_key.bat
+```
+
+只需要粘贴 API Key。脚本会固定使用 `deepseek-chat`，保存本地配置并自动启动代理；窗口看到 `DeepSeek enabled: deepseek-chat` 才表示接入成功。
+
 ## 构建和烧录
 
 推荐 VSCode ESP-IDF 插件，也可以命令行：

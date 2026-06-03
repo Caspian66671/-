@@ -2,16 +2,16 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ConfigPath = Join-Path $Root "deepseek_config.ps1"
 
-$key = Read-Host "Paste DeepSeek API Key"
+$secureKey = Read-Host "Paste DeepSeek API Key" -AsSecureString
+$keyPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+$key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPtr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPtr)
 if ([string]::IsNullOrWhiteSpace($key)) {
     Write-Host "No key entered."
     exit 1
 }
 
-$model = Read-Host "Model [deepseek-chat]"
-if ([string]::IsNullOrWhiteSpace($model)) {
-    $model = "deepseek-chat"
-}
+$model = "deepseek-chat"
 
 Set-Content -Encoding UTF8 -Path $ConfigPath -Value @(
     "# Local DeepSeek config. This file is ignored by Git.",
@@ -21,4 +21,7 @@ Set-Content -Encoding UTF8 -Path $ConfigPath -Value @(
 
 Write-Host "Saved local DeepSeek config:"
 Write-Host $ConfigPath
-Write-Host "Now run start_demo.bat again."
+Write-Host "Model: $model"
+Write-Host ""
+Write-Host "Starting WorkBuddy proxy with DeepSeek..."
+& (Join-Path $PSScriptRoot "start_workbuddy_proxy.ps1")
