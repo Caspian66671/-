@@ -59,6 +59,9 @@ static char s_pet_weather_summary[96] = "天气待更新";
 static char s_pet_calendar_summary[96] = "日程待更新";
 static char s_pet_combined_reason[256] = "天气和日程待更新";
 static char s_pet_combined_tip[256] = "科研前先喝水";
+static char s_pet_edge_summary[128] = "本地：等待推理";
+static char s_pet_edge_meta[96] = "置信度--";
+static char s_pet_cloud_summary[128] = "DeepSeek：未接入";
 static const char *s_pet_weather_scene = "天气待更新";
 static const char *s_pet_time_scene = "日程待更新";
 static const char *s_pet_emotion_scene = "状态待更新";
@@ -556,6 +559,9 @@ static const char *enterprise_insight_tip(const char *insight)
 
 static const char *enterprise_basis_text(const char *basis, const char *model)
 {
+    if (ascii_contains_ci(model, "DEEPSEEK") && ascii_contains_ci(model, "ESP-DL")) {
+        return "DeepSeek建议  ESP-DL校验  天气日历";
+    }
     if (ascii_contains_ci(model, "DEEPSEEK")) {
         return "DeepSeek研判  当前时间  科研节奏";
     }
@@ -583,10 +589,20 @@ static void update_pet_tip_from_insight(const char *text)
     char basis[128];
     char model[48];
     char risk[32];
+    char edge_insight[64];
+    char edge_conf[32];
+    char edge_lat[32];
+    char cloud_model[48];
+    char cloud_insight[64];
     copy_field_value(text, "INSIGHT:", insight, sizeof(insight));
     copy_field_value(text, "BASIS:", basis, sizeof(basis));
     copy_field_value(text, "MODEL:", model, sizeof(model));
     copy_field_value(text, "RISK:", risk, sizeof(risk));
+    copy_field_value(text, "EDGE_INSIGHT:", edge_insight, sizeof(edge_insight));
+    copy_field_value(text, "EDGE_CONF:", edge_conf, sizeof(edge_conf));
+    copy_field_value(text, "EDGE_LAT:", edge_lat, sizeof(edge_lat));
+    copy_field_value(text, "CLOUD_MODEL:", cloud_model, sizeof(cloud_model));
+    copy_field_value(text, "CLOUD_INSIGHT:", cloud_insight, sizeof(cloud_insight));
 
     s_pet_service_count++;
     s_pet_last_action = WORKBUDDY_ACTION_AI_INSIGHT;
@@ -598,6 +614,15 @@ static void update_pet_tip_from_insight(const char *text)
     s_pet_model_tip = ascii_contains_ci(model, "ESP-DL") ? "ESP-DL 本地推理" :
                       ascii_contains_ci(model, "EDGE-INT8") ? "本地量化推理" :
                       ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
+    snprintf(s_pet_edge_summary, sizeof(s_pet_edge_summary), "本地：%s",
+             enterprise_insight_tip(edge_insight[0] != '\0' ? edge_insight : insight));
+    snprintf(s_pet_edge_meta, sizeof(s_pet_edge_meta), "置信度%.8s  延迟%.12s",
+             edge_conf[0] != '\0' ? edge_conf : "--",
+             edge_lat[0] != '\0' ? edge_lat : "--");
+    snprintf(s_pet_cloud_summary, sizeof(s_pet_cloud_summary), "DeepSeek：%s",
+             ascii_contains_ci(cloud_model, "DEEPSEEK") && cloud_insight[0] != '\0'
+                ? enterprise_insight_tip(cloud_insight)
+                : "未接入");
 
     if (ascii_contains_ci(risk, "HIGH")) {
         s_pet_state = "贴心提醒";
@@ -921,14 +946,15 @@ static bool lvgl_show_suggestion_page(void)
     lvgl_label_width(reason_label, 330);
 
     lv_obj_t *ai_card = lvgl_glass_card(scr, 556, 132, 360, 340, 28);
-    lvgl_label(ai_card, "边缘AI", 44, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(ai_card, "ESP-DL 本地推理", 46, 96, &workbuddy_cn_28, s_pet_accent);
-    lv_obj_t *chip = lvgl_card(ai_card, 46, 176, 242, 50, 0xe8f8ff, 25);
-    lv_obj_set_style_bg_opa(chip, LV_OPA_80, 0);
-    lv_obj_set_style_border_width(chip, 2, 0);
-    lv_obj_set_style_border_color(chip, lv_color_hex(s_pet_accent), 0);
-    lv_obj_t *chip_label = lvgl_label(chip, s_pet_model_tip, 30, 12, &workbuddy_cn_20, s_pet_accent);
-    lvgl_label_width(chip_label, 182);
+    lvgl_label(ai_card, "推理结果", 44, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(ai_card, "本地推理", 46, 88, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *edge_label = lvgl_label(ai_card, s_pet_edge_summary, 46, 120, &workbuddy_cn_20, s_pet_accent);
+    lvgl_label_width(edge_label, 260);
+    lv_obj_t *edge_meta = lvgl_label(ai_card, s_pet_edge_meta, 46, 154, &workbuddy_cn_20, 0x577489);
+    lvgl_label_width(edge_meta, 260);
+    lvgl_label(ai_card, "DeepSeek建议", 46, 208, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *cloud_label = lvgl_label(ai_card, s_pet_cloud_summary, 46, 240, &workbuddy_cn_20, 0x10283e);
+    lvgl_label_width(cloud_label, 260);
 
     lvgl_port_unlock();
     return true;

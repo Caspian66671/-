@@ -18,7 +18,8 @@ ESP32-P4 本地完成 AI 推理，DeepSeek 不是主决策链路。
 
 - 天气助手：显示西安天气、温度、降雨概率和出行提醒。
 - 日程提醒：显示北京时间、日期、农历和节假日。
-- 边缘 AI 研伴：ESP32-P4 本地运行 `main/models/workbuddy_advisor.espdl`，根据天气和日历输出当前建议。
+- 边缘 AI 研伴：ESP32-P4 本地运行 `main/models/workbuddy_advisor.espdl`，根据天气和日历输出本地推理结果。
+- DeepSeek 建议：联网时由电脑端代理返回云端建议，屏幕左侧显示最终建议，右侧同时展示本地推理和 DeepSeek 建议。
 - UI：LVGL 触摸界面，中文字体由 `tools/generate_workbuddy_fonts.js` 自动从屏幕源码提取生成。
 
 ## 本地 AI 模型
@@ -66,6 +67,8 @@ main/models/workbuddy_advisor.json
 main/models/workbuddy_advisor.onnx
 ```
 
+仓库只提交 `.espdl`，其它导出中间产物会被 `.gitignore` 忽略。
+
 ## 启动电脑代理
 
 电脑和开发板需要在同一 WiFi。双击：
@@ -97,6 +100,7 @@ idf.py -p COM3 flash
 ```
 
 本次 ESP-DL 接入已用 ESP-IDF v5.5.4 构建通过。
+项目分区表把 factory app 分区扩到 8M，用来给后续摄像头识别和情绪模块预留空间。
 
 ## 新电脑从零运行
 

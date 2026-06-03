@@ -41,6 +41,10 @@ struct advisor_context_t {
     char advice[24];
     char holiday[32];
     char day_type[16];
+    char cloud_model[24];
+    char cloud_insight[32];
+    char cloud_risk[24];
+    char cloud_basis[96];
     int temp_c;
     int rain_percent;
     int hour;
@@ -115,6 +119,10 @@ static advisor_context_t parse_context(const char *text)
     strcpy(ctx.advice, "UNKNOWN");
     strcpy(ctx.holiday, "NONE");
     strcpy(ctx.day_type, "WORKDAY");
+    strcpy(ctx.cloud_model, "NONE");
+    strcpy(ctx.cloud_insight, "");
+    strcpy(ctx.cloud_risk, "LOW");
+    strcpy(ctx.cloud_basis, "");
     ctx.temp_c = int_field(text, "TEMP:", 24);
     ctx.rain_percent = int_field(text, "RAIN:", 0);
     ctx.hour = int_field(text, "HOUR:", 9);
@@ -122,6 +130,10 @@ static advisor_context_t parse_context(const char *text)
     copy_field_value(text, "ADVICE:", ctx.advice, sizeof(ctx.advice));
     copy_field_value(text, "HOLIDAY:", ctx.holiday, sizeof(ctx.holiday));
     copy_field_value(text, "DAY_TYPE:", ctx.day_type, sizeof(ctx.day_type));
+    copy_field_value(text, "CLOUD_MODEL:", ctx.cloud_model, sizeof(ctx.cloud_model));
+    copy_field_value(text, "CLOUD_INSIGHT:", ctx.cloud_insight, sizeof(ctx.cloud_insight));
+    copy_field_value(text, "CLOUD_RISK:", ctx.cloud_risk, sizeof(ctx.cloud_risk));
+    copy_field_value(text, "CLOUD_BASIS:", ctx.cloud_basis, sizeof(ctx.cloud_basis));
     return ctx;
 }
 
@@ -130,6 +142,11 @@ static bool is_rest_day(const advisor_context_t &ctx)
     return ascii_contains_ci(ctx.day_type, "HOLIDAY") ||
            ascii_contains_ci(ctx.day_type, "WEEKEND") ||
            !ascii_contains_ci(ctx.holiday, "NONE");
+}
+
+static bool is_rain_risk(const advisor_context_t &ctx)
+{
+    return ascii_contains_ci(ctx.weather, "RAIN") || ctx.rain_percent >= 60;
 }
 
 static void make_features(const advisor_context_t &ctx, float features[8])
@@ -151,11 +168,10 @@ static void make_features(const advisor_context_t &ctx, float features[8])
 
 static advisor_class_t rule_class(const advisor_context_t &ctx)
 {
-    const bool rain = ascii_contains_ci(ctx.weather, "RAIN") || ctx.rain_percent >= 50;
     const bool hot = ascii_contains_ci(ctx.advice, "HOT") || ctx.temp_c >= 30;
     const bool rest = is_rest_day(ctx);
 
-    if (rain) {
+    if (is_rain_risk(ctx)) {
         return ADVISOR_UMBRELLA;
     }
     if (rest) {
@@ -229,9 +245,35 @@ static const char *class_name(advisor_class_t cls)
     }
 }
 
+static bool class_from_name(const char *name, advisor_class_t *cls)
+{
+    if (name == nullptr || cls == nullptr) {
+        return false;
+    }
+    for (int i = 0; i < ADVISOR_CLASS_COUNT; ++i) {
+        if (ascii_contains_ci(name, class_name((advisor_class_t)i))) {
+            *cls = (advisor_class_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static advisor_class_t constrain_class(const advisor_context_t &ctx, advisor_class_t candidate)
+{
+    if (candidate == ADVISOR_UMBRELLA && !is_rain_risk(ctx)) {
+        return rule_class(ctx);
+    }
+    if ((candidate == ADVISOR_HYDRATE || candidate == ADVISOR_REST) &&
+        is_rain_risk(ctx)) {
+        return ADVISOR_UMBRELLA;
+    }
+    return candidate;
+}
+
 static const char *risk_name(const advisor_context_t &ctx, advisor_class_t cls)
 {
-    if (cls == ADVISOR_UMBRELLA || ctx.rain_percent >= 60) {
+    if (cls == ADVISOR_UMBRELLA || is_rain_risk(ctx)) {
         return "HIGH";
     }
     if (cls == ADVISOR_SLEEP || cls == ADVISOR_REST || ctx.temp_c >= 32 || ctx.temp_c <= 5) {
@@ -349,18 +391,37 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
     if (!used_espdl) {
         result = infer_reference_int8(ctx);
     }
+    result.cls = constrain_class(ctx, result.cls);
     result.risk = risk_name(ctx, result.cls);
 
+    advisor_class_t cloud_cls;
+    bool has_cloud = ascii_contains_ci(ctx.cloud_model, "DEEPSEEK") &&
+                     class_from_name(ctx.cloud_insight, &cloud_cls);
+    advisor_class_t final_cls = has_cloud ? constrain_class(ctx, cloud_cls) : result.cls;
+    const char *final_risk = has_cloud && !ascii_contains_ci(ctx.cloud_risk, "HIGH")
+        ? risk_name(ctx, final_cls)
+        : risk_name(ctx, final_cls);
+
     snprintf(out_text, out_size,
-             "MODEL: %s\nINSIGHT: %s\nRISK: %s\nBASIS: %s WEATHER_%s HOUR_%d RAIN_%d CONF_%d LAT_%dMS",
-             result.espdl ? "ESP-DL" : "EDGE-INT8",
-             class_name(result.cls),
-             result.risk,
-             is_rest_day(ctx) ? "REST_DAY" : "WORKDAY",
+             "MODEL: %s\nINSIGHT: %s\nRISK: %s\n"
+             "BASIS: %s WEATHER_%s HOUR_%d RAIN_%d\n"
+             "EDGE_MODEL: %s\nEDGE_INSIGHT: %s\nEDGE_RISK: %s\nEDGE_CONF: %d\nEDGE_LAT: %dMS\n"
+             "CLOUD_MODEL: %s\nCLOUD_INSIGHT: %s\nCLOUD_RISK: %s",
+             has_cloud ? "DEEPSEEK+ESP-DL" : (result.espdl ? "ESP-DL" : "EDGE-INT8"),
+             class_name(final_cls),
+             final_risk,
+             has_cloud ? "FINAL_DEEPSEEK_GROUNDED_BY_EDGE" :
+                         (is_rest_day(ctx) ? "FINAL_EDGE_REST_DAY" : "FINAL_EDGE_WORKDAY"),
              ctx.weather,
              ctx.hour,
              ctx.rain_percent,
+             result.espdl ? "ESP-DL" : "EDGE-INT8",
+             class_name(result.cls),
+             result.risk,
              result.confidence,
-             result.latency_ms);
+             result.latency_ms,
+             ctx.cloud_model,
+             ctx.cloud_insight[0] != '\0' ? ctx.cloud_insight : "NONE",
+             ctx.cloud_risk);
     return true;
 }

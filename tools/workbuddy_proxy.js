@@ -451,7 +451,8 @@ function insightText(data) {
   ].join("\n");
 }
 
-function edgeContextText(weather, time) {
+async function edgeContextText(weather, time) {
+  const cloud = await deepseekInsight(weather, time);
   return [
     `WEATHER: ${weather.weather}`,
     `TEMP: ${weather.temp}`,
@@ -463,6 +464,10 @@ function edgeContextText(weather, time) {
     `HOLIDAY: ${time.holiday}`,
     `HOUR: ${time.hour}`,
     `DAY_TYPE: ${time.dayType}`,
+    `CLOUD_MODEL: ${cloud.model}`,
+    `CLOUD_INSIGHT: ${cloud.insight}`,
+    `CLOUD_RISK: ${cloud.risk}`,
+    `CLOUD_BASIS: ${cloud.basis}`,
   ].join("\n");
 }
 
@@ -485,7 +490,7 @@ const server = http.createServer(async (req, res) => {
     if (req.url === "/edge-context") {
       const weather = await weatherData();
       const time = timeData();
-      send(res, 200, edgeContextText(weather, time));
+      send(res, 200, await edgeContextText(weather, time));
       return;
     }
     if (req.url === "/health") {

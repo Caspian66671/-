@@ -11,3 +11,6 @@ __fresh_clone_check/
 deepseek_config.ps1
 .advisor_venv/
 __pycache__/
+main/models/*.info
+main/models/*.json
+main/models/*.onnx
