@@ -22,6 +22,7 @@
 #include "workbuddy_actions.h"
 #include "workbuddy_display_test.h"
 #include "workbuddy_edge_advisor.h"
+#include "workbuddy_interaction.h"
 #include "workbuddy_triggers.h"
 
 static const char *TAG = "workbuddy";
@@ -35,7 +36,7 @@ static const char *TAG = "workbuddy";
 #define PROXY_DISCOVERY_RETRY_DELAY_MS 800
 #define PROXY_BASE_URL_MAX_LEN 128
 #define PROXY_ACTION_URL_MAX_LEN 160
-#define PROXY_RESPONSE_MAX_LEN 512
+#define PROXY_RESPONSE_MAX_LEN 1024
 #define PROXY_DISCOVERY_MAX_HOSTS 254
 
 static QueueHandle_t btn_queue;
@@ -290,8 +291,25 @@ static void request_proxy_action(const workbuddy_action_t *action)
         }
         if (status_code >= 200 && status_code < 300 && proxy_response.len > 0) {
             if (action->id == WORKBUDDY_ACTION_AI_INSIGHT) {
+                char interaction_context[320];
+                char edge_context[PROXY_RESPONSE_MAX_LEN];
                 char advisor_text[PROXY_RESPONSE_MAX_LEN];
-                if (workbuddy_edge_advisor_infer_text(proxy_response.text,
+                workbuddy_interaction_build_context(interaction_context, sizeof(interaction_context));
+                edge_context[0] = '\0';
+                strncpy(edge_context, proxy_response.text, sizeof(edge_context) - 1);
+                edge_context[sizeof(edge_context) - 1] = '\0';
+                size_t used = strlen(edge_context);
+                if (used + 1 < sizeof(edge_context)) {
+                    edge_context[used++] = '\n';
+                    edge_context[used] = '\0';
+                }
+                if (used < sizeof(edge_context) - 1) {
+                    strncpy(edge_context + used, interaction_context,
+                            sizeof(edge_context) - used - 1);
+                    edge_context[sizeof(edge_context) - 1] = '\0';
+                }
+                ESP_LOGI(TAG, "Edge advisor enriched context: %s", edge_context);
+                if (workbuddy_edge_advisor_infer_text(edge_context,
                                                        advisor_text,
                                                        sizeof(advisor_text))) {
                     ESP_LOGI(TAG, "Edge advisor result: %s", advisor_text);

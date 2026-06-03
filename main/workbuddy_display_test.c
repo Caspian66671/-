@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "workbuddy_actions.h"
+#include "workbuddy_interaction.h"
 #include "workbuddy_launcher.h"
 #include "workbuddy_triggers.h"
 
@@ -560,6 +561,12 @@ static const char *enterprise_insight_tip(const char *insight)
     if (ascii_contains_ci(insight, "PLAN")) {
         return "整理明天科研计划";
     }
+    if (ascii_contains_ci(insight, "TASK_SPLIT")) {
+        return "把任务拆成三步";
+    }
+    if (ascii_contains_ci(insight, "COMMUTE")) {
+        return "出门前确认路线";
+    }
     if (ascii_contains_ci(insight, "SLEEP")) {
         return "早点睡，明天再战";
     }
@@ -613,6 +620,12 @@ static const char *deepseek_insight_tip(const char *insight)
     if (ascii_contains_ci(insight, "PLAN")) {
         return "今晚把明天任务排清楚";
     }
+    if (ascii_contains_ci(insight, "TASK_SPLIT")) {
+        return "先拆任务，再开始做";
+    }
+    if (ascii_contains_ci(insight, "COMMUTE")) {
+        return "看下路线和天气再出门";
+    }
     if (ascii_contains_ci(insight, "SLEEP")) {
         return "早点休息，明天效率更高";
     }
@@ -627,6 +640,10 @@ static const char *deepseek_insight_tip(const char *insight)
 
 static const char *edge_basis_text(const char *basis)
 {
+    if (ascii_contains_ci(basis, "TOUCH") || ascii_contains_ci(basis, "FOCUS_") ||
+        ascii_contains_ci(basis, "IDLE_")) {
+        return "ESP-DL量化模型  触摸交互  专注计时";
+    }
     if (ascii_contains_ci(basis, "HOLIDAY") || ascii_contains_ci(basis, "WEEKEND")) {
         return "ESP-DL量化模型  节假日  休息运动";
     }
@@ -1013,7 +1030,11 @@ static bool lvgl_show_launcher(void)
     lvgl_label_width(state_label, 96);
     char service_text[24];
     snprintf(service_text, sizeof(service_text), "服务%d次", s_pet_service_count);
-    lvgl_label(pet_card, service_text, 194, 240, &workbuddy_cn_20, 0x577489);
+    lvgl_label(pet_card, service_text, 194, 234, &workbuddy_cn_20, 0x577489);
+    char focus_text[32];
+    workbuddy_interaction_status_text(focus_text, sizeof(focus_text));
+    lv_obj_t *focus_label = lvgl_label(pet_card, focus_text, 194, 262, &workbuddy_cn_20, 0x577489);
+    lvgl_label_width(focus_label, 132);
     lv_obj_t *analysis_btn = lvgl_card(pet_card, 180, 282, 142, 38, 0xe8f8ff, 19);
     lv_obj_set_style_bg_opa(analysis_btn, LV_OPA_80, 0);
     lv_obj_set_style_border_width(analysis_btn, 2, 0);
@@ -1491,12 +1512,14 @@ static void touch_task(void *arg)
                     workbuddy_screen_show_idle();
                 } else if (event.result == WORKBUDDY_TOUCH_OPEN_APP && event.has_action) {
                     action_id = event.action_id;
+                    workbuddy_interaction_record_action(action_id);
                     ESP_LOGI(TAG, "touch x=%u y=%u -> %s", x[0], y[0],
                              action_id == WORKBUDDY_ACTION_WEATHER ? "weather" :
                              action_id == WORKBUDDY_ACTION_TIME ? "calendar" : "ai_insight");
                     workbuddy_screen_show_querying(action_id);
                     workbuddy_enqueue_trigger("touch", action_id, action_id);
                 } else if (event.result == WORKBUDDY_TOUCH_OPEN_APP) {
+                    workbuddy_interaction_record_screen(event.screen);
                     if (event.screen == WORKBUDDY_SCREEN_PET) {
                         ESP_LOGI(TAG, "touch x=%u y=%u -> pet ai page", x[0], y[0]);
                         lvgl_show_pet_ai_page();
@@ -1523,6 +1546,7 @@ static void screen_ui_task(void *arg)
     s_panel = panel;
     lvgl_init_display();
     workbuddy_launcher_init();
+    workbuddy_interaction_init();
     workbuddy_screen_show_idle();
     init_touch();
 

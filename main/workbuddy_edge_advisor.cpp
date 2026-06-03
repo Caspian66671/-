@@ -33,6 +33,8 @@ enum advisor_class_t {
     ADVISOR_UMBRELLA,
     ADVISOR_HYDRATE,
     ADVISOR_PLAN,
+    ADVISOR_TASK_SPLIT,
+    ADVISOR_COMMUTE_CHECK,
     ADVISOR_CLASS_COUNT,
 };
 
@@ -45,9 +47,17 @@ struct advisor_context_t {
     char cloud_insight[32];
     char cloud_risk[24];
     char cloud_basis[96];
+    char study_state[24];
     int temp_c;
     int rain_percent;
     int hour;
+    int touch_weather;
+    int touch_calendar;
+    int touch_ai;
+    int idle_min;
+    int focus_min;
+    int break_min;
+    int focus_rounds;
 };
 
 struct advisor_result_t {
@@ -123,9 +133,17 @@ static advisor_context_t parse_context(const char *text)
     strcpy(ctx.cloud_insight, "");
     strcpy(ctx.cloud_risk, "LOW");
     strcpy(ctx.cloud_basis, "");
+    strcpy(ctx.study_state, "FOCUS");
     ctx.temp_c = int_field(text, "TEMP:", 24);
     ctx.rain_percent = int_field(text, "RAIN:", 0);
     ctx.hour = int_field(text, "HOUR:", 9);
+    ctx.touch_weather = int_field(text, "TOUCH_WEATHER:", 0);
+    ctx.touch_calendar = int_field(text, "TOUCH_CALENDAR:", 0);
+    ctx.touch_ai = int_field(text, "TOUCH_AI:", 0);
+    ctx.idle_min = int_field(text, "IDLE_MIN:", 0);
+    ctx.focus_min = int_field(text, "FOCUS_MIN:", 0);
+    ctx.break_min = int_field(text, "BREAK_MIN:", 0);
+    ctx.focus_rounds = int_field(text, "FOCUS_ROUNDS:", 0);
     copy_field_value(text, "WEATHER:", ctx.weather, sizeof(ctx.weather));
     copy_field_value(text, "ADVICE:", ctx.advice, sizeof(ctx.advice));
     copy_field_value(text, "HOLIDAY:", ctx.holiday, sizeof(ctx.holiday));
@@ -134,6 +152,7 @@ static advisor_context_t parse_context(const char *text)
     copy_field_value(text, "CLOUD_INSIGHT:", ctx.cloud_insight, sizeof(ctx.cloud_insight));
     copy_field_value(text, "CLOUD_RISK:", ctx.cloud_risk, sizeof(ctx.cloud_risk));
     copy_field_value(text, "CLOUD_BASIS:", ctx.cloud_basis, sizeof(ctx.cloud_basis));
+    copy_field_value(text, "STUDY_STATE:", ctx.study_state, sizeof(ctx.study_state));
     return ctx;
 }
 
@@ -240,6 +259,10 @@ static const char *class_name(advisor_class_t cls)
         return "HYDRATE";
     case ADVISOR_PLAN:
         return "PLAN";
+    case ADVISOR_TASK_SPLIT:
+        return "TASK_SPLIT";
+    case ADVISOR_COMMUTE_CHECK:
+        return "COMMUTE_CHECK";
     default:
         return "PLAN";
     }
@@ -271,12 +294,48 @@ static advisor_class_t constrain_class(const advisor_context_t &ctx, advisor_cla
     return candidate;
 }
 
+static bool meal_sleep_or_weather_guard(advisor_class_t cls)
+{
+    return cls == ADVISOR_BREAKFAST ||
+           cls == ADVISOR_LUNCH ||
+           cls == ADVISOR_DINNER ||
+           cls == ADVISOR_SLEEP ||
+           cls == ADVISOR_UMBRELLA;
+}
+
+static advisor_class_t interaction_adjust_class(const advisor_context_t &ctx, advisor_class_t candidate)
+{
+    if (meal_sleep_or_weather_guard(candidate)) {
+        return candidate;
+    }
+    if (ctx.focus_min >= 25 || ascii_contains_ci(ctx.study_state, "BREAK_DUE")) {
+        return ADVISOR_REST;
+    }
+    if (ctx.idle_min >= 45) {
+        return ADVISOR_HYDRATE;
+    }
+    if (ctx.break_min >= 8 || ascii_contains_ci(ctx.study_state, "READY_FOCUS")) {
+        return ADVISOR_RESEARCH_FOCUS;
+    }
+    if (ctx.touch_ai >= 3) {
+        return ADVISOR_TASK_SPLIT;
+    }
+    if (ctx.touch_weather >= 3) {
+        return is_rain_risk(ctx) ? ADVISOR_UMBRELLA : ADVISOR_COMMUTE_CHECK;
+    }
+    if (ctx.touch_calendar >= 3) {
+        return ADVISOR_PLAN;
+    }
+    return candidate;
+}
+
 static const char *risk_name(const advisor_context_t &ctx, advisor_class_t cls)
 {
     if (cls == ADVISOR_UMBRELLA || is_rain_risk(ctx)) {
         return "HIGH";
     }
-    if (cls == ADVISOR_SLEEP || cls == ADVISOR_REST || ctx.temp_c >= 32 || ctx.temp_c <= 5) {
+    if (cls == ADVISOR_SLEEP || cls == ADVISOR_REST || cls == ADVISOR_TASK_SPLIT ||
+        ctx.temp_c >= 32 || ctx.temp_c <= 5) {
         return "MEDIUM";
     }
     return "LOW";
@@ -391,7 +450,7 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
     if (!used_espdl) {
         result = infer_reference_int8(ctx);
     }
-    result.cls = constrain_class(ctx, result.cls);
+    result.cls = interaction_adjust_class(ctx, constrain_class(ctx, result.cls));
     result.risk = risk_name(ctx, result.cls);
 
     advisor_class_t cloud_cls;
@@ -404,9 +463,10 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
 
     snprintf(out_text, out_size,
              "MODEL: %s\nINSIGHT: %s\nRISK: %s\n"
-             "BASIS: %s WEATHER_%s HOUR_%d RAIN_%d\n"
+             "BASIS: %s WEATHER_%s HOUR_%d RAIN_%d TOUCH_AI_%d TOUCH_WEATHER_%d FOCUS_%d IDLE_%d\n"
              "EDGE_MODEL: %s\nEDGE_INSIGHT: %s\nEDGE_RISK: %s\nEDGE_CONF: %d\nEDGE_LAT: %dMS\n"
-             "CLOUD_MODEL: %s\nCLOUD_INSIGHT: %s\nCLOUD_RISK: %s",
+             "CLOUD_MODEL: %s\nCLOUD_INSIGHT: %s\nCLOUD_RISK: %s\n"
+             "INTERACTION: W%d C%d A%d IDLE%d FOCUS%d ROUND%d %s",
              has_cloud ? "DEEPSEEK+ESP-DL" : (result.espdl ? "ESP-DL" : "EDGE-INT8"),
              class_name(final_cls),
              final_risk,
@@ -415,6 +475,10 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
              ctx.weather,
              ctx.hour,
              ctx.rain_percent,
+             ctx.touch_ai,
+             ctx.touch_weather,
+             ctx.focus_min,
+             ctx.idle_min,
              result.espdl ? "ESP-DL" : "EDGE-INT8",
              class_name(result.cls),
              result.risk,
@@ -422,6 +486,13 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
              result.latency_ms,
              ctx.cloud_model,
              ctx.cloud_insight[0] != '\0' ? ctx.cloud_insight : "NONE",
-             ctx.cloud_risk);
+             ctx.cloud_risk,
+             ctx.touch_weather,
+             ctx.touch_calendar,
+             ctx.touch_ai,
+             ctx.idle_min,
+             ctx.focus_min,
+             ctx.focus_rounds,
+             ctx.study_state);
     return true;
 }

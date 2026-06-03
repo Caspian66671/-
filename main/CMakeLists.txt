@@ -2,6 +2,7 @@ set(workbuddy_sources
     "workbuddy_main.c"
     "workbuddy_actions.c"
     "workbuddy_display_test.c"
+    "workbuddy_interaction.c"
     "workbuddy_launcher.c"
     "workbuddy_edge_advisor.cpp"
     "workbuddy_cn_20.c"
