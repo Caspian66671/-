@@ -337,13 +337,13 @@ static advisor_class_t interaction_adjust_class(const advisor_context_t &ctx, ad
     if (ctx.break_min >= 8 || ascii_contains_ci(ctx.study_state, "READY_FOCUS")) {
         return ADVISOR_RESEARCH_FOCUS;
     }
-    if (ctx.touch_ai >= 3) {
-        return ADVISOR_TASK_SPLIT;
+    if (ctx.touch_ai >= 5) {
+        return ADVISOR_RESEARCH_FOCUS;
     }
-    if (ctx.touch_weather >= 3) {
+    if (ctx.touch_weather >= 4) {
         return is_rain_risk(ctx) ? ADVISOR_UMBRELLA : ADVISOR_COMMUTE_CHECK;
     }
-    if (ctx.touch_calendar >= 3) {
+    if (ctx.touch_calendar >= 4) {
         return ADVISOR_PLAN;
     }
     return candidate;

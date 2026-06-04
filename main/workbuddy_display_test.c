@@ -770,7 +770,7 @@ static const char *aligned_deepseek_tip(const char *edge_insight, const char *cl
 {
     if (insight_is_study(edge_insight)) {
         return insight_is_study(cloud_insight) ? deepseek_insight_tip(cloud_insight) :
-               "围绕本地学习建议补充";
+               "先整理资料和笔记";
     }
     if (ascii_contains_ci(edge_insight, "HYDRATE")) {
         return "补水伸展后再学习";
@@ -786,7 +786,7 @@ static const char *aligned_deepseek_tip(const char *edge_insight, const char *cl
     }
     if (insight_is_care(edge_insight)) {
         return insight_is_care(cloud_insight) ? deepseek_insight_tip(cloud_insight) :
-               "先照顾状态再继续";
+               "照顾状态再学习";
     }
     return deepseek_insight_tip(cloud_insight);
 }

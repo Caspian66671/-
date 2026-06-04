@@ -109,11 +109,11 @@ def label_for(hour, rest_day, rain, hot, ai_taps, weather_taps, calendar_taps,
         return 10   # HYDRATE
     if break_min >= 8:
         return 3    # RESEARCH_FOCUS
-    if ai_taps >= 3:
-        return 12   # TASK_SPLIT
-    if weather_taps >= 3:
+    if ai_taps >= 5:
+        return 3    # RESEARCH_FOCUS
+    if weather_taps >= 4:
         return 9 if rain else 13  # UMBRELLA or COMMUTE_CHECK
-    if calendar_taps >= 3:
+    if calendar_taps >= 4:
         return 11   # PLAN
     return base
 
@@ -123,9 +123,9 @@ def build_dataset():
     ys = []
     interaction_cases = [
         (0, 0, 0, 0, 5, 0),
-        (3, 0, 0, 0, 5, 0),
-        (0, 3, 0, 0, 5, 0),
-        (0, 0, 3, 0, 5, 0),
+        (5, 0, 0, 0, 5, 0),
+        (0, 4, 0, 0, 5, 0),
+        (0, 0, 4, 0, 5, 0),
         (0, 0, 0, 45, 5, 45),
         (0, 0, 0, 0, 25, 0),
         (0, 0, 0, 10, 12, 8),
