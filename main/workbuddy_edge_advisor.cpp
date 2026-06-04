@@ -20,7 +20,7 @@ extern const uint8_t workbuddy_advisor_espdl[] asm("_binary_workbuddy_advisor_es
 
 static const char *TAG = "edge_advisor";
 
-#define ADVISOR_FEATURE_COUNT 14
+#define ADVISOR_FEATURE_COUNT 21
 
 enum advisor_class_t {
     ADVISOR_BREAKFAST = 0,
@@ -196,6 +196,13 @@ static void make_features(const advisor_context_t &ctx, float features[ADVISOR_F
     features[11] = clamp01(ctx.idle_min / 45.0f);
     features[12] = ctx.focus_min >= 25 ? 1.0f : clamp01(ctx.focus_min / 25.0f);
     features[13] = ctx.break_min >= 8 ? 1.0f : clamp01(ctx.break_min / 8.0f);
+    features[14] = (ctx.hour >= 6 && ctx.hour < 9) ? 1.0f : 0.0f;
+    features[15] = (ctx.hour >= 9 && ctx.hour < 11) ? 1.0f : 0.0f;
+    features[16] = (ctx.hour >= 11 && ctx.hour < 14) ? 1.0f : 0.0f;
+    features[17] = (ctx.hour >= 14 && ctx.hour < 17) ? 1.0f : 0.0f;
+    features[18] = (ctx.hour >= 17 && ctx.hour < 19) ? 1.0f : 0.0f;
+    features[19] = (ctx.hour >= 19 && ctx.hour < 22) ? 1.0f : 0.0f;
+    features[20] = (ctx.hour >= 22 || ctx.hour < 6) ? 1.0f : 0.0f;
 }
 
 static advisor_class_t rule_class(const advisor_context_t &ctx)

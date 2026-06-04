@@ -13,7 +13,7 @@ ESPDL_MODEL_PATH = MODEL_DIR / "workbuddy_advisor.espdl"
 TARGET = "esp32p4"
 NUM_OF_BITS = 8
 DEVICE = "cpu"
-FEATURE_COUNT = 14
+FEATURE_COUNT = 21
 CLASS_COUNT = 14
 
 
@@ -21,9 +21,9 @@ class AdvisorNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(FEATURE_COUNT, 24),
+            nn.Linear(FEATURE_COUNT, 32),
             nn.ReLU(),
-            nn.Linear(24, CLASS_COUNT),
+            nn.Linear(32, CLASS_COUNT),
         )
 
     def forward(self, x):
@@ -58,6 +58,13 @@ def make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday,
         min(1.0, idle_min / 45.0),
         1.0 if focus_min >= 25 else max(0.0, focus_min / 25.0),
         1.0 if break_min >= 8 else max(0.0, break_min / 8.0),
+        1.0 if 6 <= hour < 9 else 0.0,
+        1.0 if 9 <= hour < 11 else 0.0,
+        1.0 if 11 <= hour < 14 else 0.0,
+        1.0 if 14 <= hour < 17 else 0.0,
+        1.0 if 17 <= hour < 19 else 0.0,
+        1.0 if 19 <= hour < 22 else 0.0,
+        1.0 if hour >= 22 or hour < 6 else 0.0,
     ]
 
 
@@ -148,10 +155,10 @@ def train_model():
     torch.manual_seed(7)
     x, y = build_dataset()
     model = AdvisorNet().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.025)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.02)
     loss_fn = nn.CrossEntropyLoss()
 
-    for _ in range(650):
+    for _ in range(900):
         logits = model(x)
         loss = loss_fn(logits, y)
         optimizer.zero_grad()
@@ -174,7 +181,7 @@ def export_model():
         model=model,
         espdl_export_file=str(ESPDL_MODEL_PATH),
         calib_dataloader=dataloader,
-        calib_steps=min(64, len(dataloader)),
+        calib_steps=min(256, len(dataloader)),
         input_shape=[1, FEATURE_COUNT],
         inputs=[test_input],
         target=TARGET,

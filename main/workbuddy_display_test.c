@@ -61,7 +61,7 @@ static char s_pet_calendar_summary[96] = "日程待更新";
 static char s_pet_combined_reason[256] = "天气和日程待更新";
 static char s_pet_combined_tip[256] = "学习前先喝水";
 static char s_pet_edge_summary[128] = "等待推理";
-static char s_pet_edge_meta[96] = "ESP-DL 14维  置信度--";
+static char s_pet_edge_meta[96] = "ESP-DL 21维  置信度--";
 static char s_pet_cloud_summary[128] = "未接入";
 static char s_pet_cloud_meta[96] = "等待云端模型";
 static const char *s_pet_weather_scene = "天气待更新";
@@ -741,7 +741,7 @@ static void update_pet_tip_from_insight(const char *text)
                       ascii_contains_ci(model, "EDGE-INT8") ? "本地量化推理" :
                       ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
     snprintf(s_pet_edge_summary, sizeof(s_pet_edge_summary), "%s", enterprise_insight_tip(edge_value));
-    snprintf(s_pet_edge_meta, sizeof(s_pet_edge_meta), "ESP-DL 14维  置信度%.8s  延迟%.12s",
+    snprintf(s_pet_edge_meta, sizeof(s_pet_edge_meta), "ESP-DL 21维  置信度%.8s  延迟%.12s",
              field_has_value(edge_conf) ? edge_conf : "--",
              field_has_value(edge_lat) ? edge_lat : "--");
     snprintf(s_pet_cloud_summary, sizeof(s_pet_cloud_summary), "%s",
@@ -924,6 +924,20 @@ static const char *holiday_to_cn(const char *holiday)
         return "元旦";
     }
     return "无";
+}
+
+static const char *calendar_effective_day_type(const char *day_type, const char *holiday_cn,
+                                               int year, int month, int day)
+{
+    if (holiday_cn != NULL && strcmp(holiday_cn, "无") != 0) {
+        return "HOLIDAY";
+    }
+    if (ascii_contains_ci(day_type, "WORKDAY") ||
+        ascii_contains_ci(day_type, "WEEKEND") ||
+        ascii_contains_ci(day_type, "HOLIDAY")) {
+        return day_type;
+    }
+    return weekday_monday0(year, month, day) >= 5 ? "WEEKEND" : "WORKDAY";
 }
 
 static const char *calendar_day_type_cn(const char *holiday_cn, const char *day_type)
@@ -1181,7 +1195,7 @@ static bool lvgl_show_pet_ai_page(void)
     lvgl_label(main_card, "本地输入", 42, 188, &workbuddy_cn_20, 0x577489);
     lv_obj_t *feature_chip = lvgl_card(main_card, 42, 222, 102, 38, 0xe8f8ff, 19);
     lv_obj_set_style_bg_opa(feature_chip, LV_OPA_80, 0);
-    lvgl_center_label(feature_chip, "14维模型", 0, 8, 102, &workbuddy_cn_20, 0x1c7ed6);
+    lvgl_center_label(feature_chip, "21维模型", 0, 8, 102, &workbuddy_cn_20, 0x1c7ed6);
     lv_obj_t *touch_chip = lvgl_card(main_card, 160, 222, 104, 38, 0xf3f0ff, 19);
     lv_obj_set_style_bg_opa(touch_chip, LV_OPA_80, 0);
     lvgl_center_label(touch_chip, "触摸交互", 0, 8, 104, &workbuddy_cn_20, 0x7651d9);
@@ -1329,9 +1343,6 @@ static bool lvgl_show_calendar_result_page(const char *text)
     copy_field_value(text, "DAY_TYPE:", day_type, sizeof(day_type));
     const char *lunar_cn = lunar_to_cn(lunar);
     const char *holiday_cn = holiday_to_cn(holiday);
-    const char *day_type_cn = calendar_day_type_cn(holiday_cn, day_type);
-    const char *suggestion_cn = calendar_pet_suggestion(time_value, holiday_cn, day_type);
-    update_pet_tip_from_calendar(time_value, holiday_cn, day_type);
     int year = 2026;
     int month = 5;
     int day = 30;
@@ -1341,6 +1352,10 @@ static bool lvgl_show_calendar_result_page(const char *text)
         month = 5;
         day = 30;
     }
+    const char *effective_day_type = calendar_effective_day_type(day_type, holiday_cn, year, month, day);
+    const char *day_type_cn = calendar_day_type_cn(holiday_cn, effective_day_type);
+    const char *suggestion_cn = calendar_pet_suggestion(time_value, holiday_cn, effective_day_type);
+    update_pet_tip_from_calendar(time_value, holiday_cn, effective_day_type);
     int first_weekday = weekday_monday0(year, month, 1);
     int month_days = days_in_month(year, month);
     int prev_month = month == 1 ? 12 : month - 1;
