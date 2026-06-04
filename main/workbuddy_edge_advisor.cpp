@@ -20,6 +20,8 @@ extern const uint8_t workbuddy_advisor_espdl[] asm("_binary_workbuddy_advisor_es
 
 static const char *TAG = "edge_advisor";
 
+#define ADVISOR_FEATURE_COUNT 14
+
 enum advisor_class_t {
     ADVISOR_BREAKFAST = 0,
     ADVISOR_LUNCH,
@@ -168,7 +170,12 @@ static bool is_rain_risk(const advisor_context_t &ctx)
     return ascii_contains_ci(ctx.weather, "RAIN") || ctx.rain_percent >= 60;
 }
 
-static void make_features(const advisor_context_t &ctx, float features[8])
+static float clamp01(float value)
+{
+    return std::max(0.0f, std::min(1.0f, value));
+}
+
+static void make_features(const advisor_context_t &ctx, float features[ADVISOR_FEATURE_COUNT])
 {
     const bool rain = ascii_contains_ci(ctx.weather, "RAIN") || ctx.rain_percent >= 50;
     const bool hot = ascii_contains_ci(ctx.advice, "HOT") || ctx.temp_c >= 30;
@@ -183,6 +190,12 @@ static void make_features(const advisor_context_t &ctx, float features[8])
     features[5] = ascii_contains_ci(ctx.weather, "SUNNY") ? 0.75f : -0.25f;
     features[6] = ascii_contains_ci(ctx.weather, "CLOUDY") ? 0.75f : -0.25f;
     features[7] = ascii_contains_ci(ctx.holiday, "NONE") ? -0.5f : 1.0f;
+    features[8] = clamp01(ctx.touch_ai / 5.0f);
+    features[9] = clamp01(ctx.touch_weather / 5.0f);
+    features[10] = clamp01(ctx.touch_calendar / 5.0f);
+    features[11] = clamp01(ctx.idle_min / 45.0f);
+    features[12] = ctx.focus_min >= 25 ? 1.0f : clamp01(ctx.focus_min / 25.0f);
+    features[13] = ctx.break_min >= 8 ? 1.0f : clamp01(ctx.break_min / 8.0f);
 }
 
 static advisor_class_t rule_class(const advisor_context_t &ctx)
@@ -351,7 +364,7 @@ static int8_t quantize_feature(float value, int exponent)
     return (int8_t)std::max(-128, std::min(127, quantized));
 }
 
-static bool run_espdl_model(const float features[8], advisor_result_t *result)
+static bool run_espdl_model(const float features[ADVISOR_FEATURE_COUNT], advisor_result_t *result)
 {
     if (s_model == nullptr) {
         s_model = new dl::Model((const char *)workbuddy_advisor_espdl,
@@ -373,11 +386,11 @@ static bool run_espdl_model(const float features[8], advisor_result_t *result)
     dl::TensorBase *input = inputs.begin()->second;
     dl::TensorBase *output = outputs.begin()->second;
     int input_exp = input->get_exponent();
-    int8_t quantized_features[8] = {};
-    for (int i = 0; i < 8; ++i) {
+    int8_t quantized_features[ADVISOR_FEATURE_COUNT] = {};
+    for (int i = 0; i < ADVISOR_FEATURE_COUNT; ++i) {
         quantized_features[i] = quantize_feature(features[i], input_exp);
     }
-    if (!input->assign({1, 8}, quantized_features, input_exp, dl::DATA_TYPE_INT8)) {
+    if (!input->assign({1, ADVISOR_FEATURE_COUNT}, quantized_features, input_exp, dl::DATA_TYPE_INT8)) {
         ESP_LOGE(TAG, "Failed to assign advisor input tensor");
         return false;
     }
@@ -421,7 +434,7 @@ void workbuddy_edge_advisor_init(void)
 {
 #if WORKBUDDY_HAS_ESPDL_MODEL
     advisor_result_t unused = {};
-    float zero_features[8] = {};
+    float zero_features[ADVISOR_FEATURE_COUNT] = {};
     if (run_espdl_model(zero_features, &unused)) {
         ESP_LOGI(TAG, "ESP-DL advisor warmup ok");
     } else {
@@ -439,7 +452,7 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
     }
 
     advisor_context_t ctx = parse_context(context_text);
-    float features[8] = {};
+    float features[ADVISOR_FEATURE_COUNT] = {};
     make_features(ctx, features);
 
     advisor_result_t result = {};
@@ -463,8 +476,8 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
 
     snprintf(out_text, out_size,
              "MODEL: %s\nINSIGHT: %s\nRISK: %s\n"
-             "BASIS: %s WEATHER_%s HOUR_%d RAIN_%d TOUCH_AI_%d TOUCH_WEATHER_%d FOCUS_%d IDLE_%d\n"
-             "EDGE_MODEL: %s\nEDGE_INSIGHT: %s\nEDGE_RISK: %s\nEDGE_CONF: %d\nEDGE_LAT: %dMS\n"
+             "BASIS: %s FEATURES_%d WEATHER_%s HOUR_%d RAIN_%d TOUCH_AI_%d TOUCH_WEATHER_%d FOCUS_%d IDLE_%d\n"
+             "EDGE_MODEL: %s\nEDGE_FEATURES: %d\nEDGE_INSIGHT: %s\nEDGE_RISK: %s\nEDGE_CONF: %d\nEDGE_LAT: %dMS\n"
              "CLOUD_MODEL: %s\nCLOUD_INSIGHT: %s\nCLOUD_RISK: %s\n"
              "INTERACTION: W%d C%d A%d IDLE%d FOCUS%d ROUND%d %s",
              has_cloud ? "DEEPSEEK+ESP-DL" : (result.espdl ? "ESP-DL" : "EDGE-INT8"),
@@ -472,6 +485,7 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
              final_risk,
              has_cloud ? "FINAL_DEEPSEEK_GROUNDED_BY_EDGE" :
                          (is_rest_day(ctx) ? "FINAL_EDGE_REST_DAY" : "FINAL_EDGE_WORKDAY"),
+             ADVISOR_FEATURE_COUNT,
              ctx.weather,
              ctx.hour,
              ctx.rain_percent,
@@ -480,6 +494,7 @@ bool workbuddy_edge_advisor_infer_text(const char *context_text, char *out_text,
              ctx.focus_min,
              ctx.idle_min,
              result.espdl ? "ESP-DL" : "EDGE-INT8",
+             ADVISOR_FEATURE_COUNT,
              class_name(result.cls),
              result.risk,
              result.confidence,

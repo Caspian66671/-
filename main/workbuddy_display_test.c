@@ -61,7 +61,7 @@ static char s_pet_calendar_summary[96] = "日程待更新";
 static char s_pet_combined_reason[256] = "天气和日程待更新";
 static char s_pet_combined_tip[256] = "科研前先喝水";
 static char s_pet_edge_summary[128] = "等待推理";
-static char s_pet_edge_meta[96] = "ESP-DL  置信度--";
+static char s_pet_edge_meta[96] = "ESP-DL 14维  置信度--";
 static char s_pet_cloud_summary[128] = "未接入";
 static char s_pet_cloud_meta[96] = "等待云端模型";
 static const char *s_pet_weather_scene = "天气待更新";
@@ -691,7 +691,7 @@ static void update_pet_tip_from_insight(const char *text)
                       ascii_contains_ci(model, "EDGE-INT8") ? "本地量化推理" :
                       ascii_contains_ci(model, "DEEPSEEK") ? "DeepSeek 已接入" : "离线建议";
     snprintf(s_pet_edge_summary, sizeof(s_pet_edge_summary), "%s", enterprise_insight_tip(edge_value));
-    snprintf(s_pet_edge_meta, sizeof(s_pet_edge_meta), "ESP-DL  置信度%.8s  延迟%.12s",
+    snprintf(s_pet_edge_meta, sizeof(s_pet_edge_meta), "ESP-DL 14维  置信度%.8s  延迟%.12s",
              field_has_value(edge_conf) ? edge_conf : "--",
              field_has_value(edge_lat) ? edge_lat : "--");
     snprintf(s_pet_cloud_summary, sizeof(s_pet_cloud_summary), "%s",

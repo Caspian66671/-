@@ -13,15 +13,17 @@ ESPDL_MODEL_PATH = MODEL_DIR / "workbuddy_advisor.espdl"
 TARGET = "esp32p4"
 NUM_OF_BITS = 8
 DEVICE = "cpu"
+FEATURE_COUNT = 14
+CLASS_COUNT = 14
 
 
 class AdvisorNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(8, 16),
+            nn.Linear(FEATURE_COUNT, 24),
             nn.ReLU(),
-            nn.Linear(16, 12),
+            nn.Linear(24, CLASS_COUNT),
         )
 
     def forward(self, x):
@@ -39,7 +41,8 @@ class FeatureDataset(Dataset):
         return self.features[index]
 
 
-def make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday):
+def make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday,
+                  ai_taps, weather_taps, calendar_taps, idle_min, focus_min, break_min):
     return [
         max(-1.0, min(1.0, (hour - 12) / 12.0)),
         1.0 if rest_day else -1.0,
@@ -49,10 +52,16 @@ def make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday):
         0.75 if sunny else -0.25,
         0.75 if cloudy else -0.25,
         1.0 if holiday else -0.5,
+        min(1.0, ai_taps / 5.0),
+        min(1.0, weather_taps / 5.0),
+        min(1.0, calendar_taps / 5.0),
+        min(1.0, idle_min / 45.0),
+        1.0 if focus_min >= 25 else max(0.0, focus_min / 25.0),
+        1.0 if break_min >= 8 else max(0.0, break_min / 8.0),
     ]
 
 
-def label_for(hour, rest_day, rain, hot):
+def base_label_for(hour, rest_day, rain, hot):
     if rain:
         return 9   # UMBRELLA
     if rest_day:
@@ -82,9 +91,39 @@ def label_for(hour, rest_day, rain, hot):
     return 11          # PLAN
 
 
+def label_for(hour, rest_day, rain, hot, ai_taps, weather_taps, calendar_taps,
+              idle_min, focus_min, break_min):
+    base = base_label_for(hour, rest_day, rain, hot)
+    if base in (0, 1, 2, 8, 9):  # meals, sleep, rain stay deterministic
+        return base
+    if focus_min >= 25:
+        return 7    # REST
+    if idle_min >= 45:
+        return 10   # HYDRATE
+    if break_min >= 8:
+        return 3    # RESEARCH_FOCUS
+    if ai_taps >= 3:
+        return 12   # TASK_SPLIT
+    if weather_taps >= 3:
+        return 9 if rain else 13  # UMBRELLA or COMMUTE_CHECK
+    if calendar_taps >= 3:
+        return 11   # PLAN
+    return base
+
+
 def build_dataset():
     xs = []
     ys = []
+    interaction_cases = [
+        (0, 0, 0, 0, 5, 0),
+        (3, 0, 0, 0, 5, 0),
+        (0, 3, 0, 0, 5, 0),
+        (0, 0, 3, 0, 5, 0),
+        (0, 0, 0, 45, 5, 45),
+        (0, 0, 0, 0, 25, 0),
+        (0, 0, 0, 10, 12, 8),
+        (4, 2, 1, 5, 28, 0),
+    ]
     for hour in range(24):
         for rest_day in (False, True):
             for rain in (False, True):
@@ -94,8 +133,14 @@ def build_dataset():
                             sunny = weather == "sunny"
                             cloudy = weather == "cloudy"
                             holiday = rest_day
-                            xs.append(make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday))
-                            ys.append(label_for(hour, rest_day, rain, hot))
+                            for case in interaction_cases:
+                                ai_taps, weather_taps, calendar_taps, idle_min, focus_min, break_min = case
+                                xs.append(make_features(hour, rest_day, rain, hot, cold, sunny, cloudy, holiday,
+                                                        ai_taps, weather_taps, calendar_taps,
+                                                        idle_min, focus_min, break_min))
+                                ys.append(label_for(hour, rest_day, rain, hot,
+                                                    ai_taps, weather_taps, calendar_taps,
+                                                    idle_min, focus_min, break_min))
     return torch.tensor(xs, dtype=torch.float32), torch.tensor(ys, dtype=torch.long)
 
 
@@ -106,7 +151,7 @@ def train_model():
     optimizer = torch.optim.Adam(model.parameters(), lr=0.025)
     loss_fn = nn.CrossEntropyLoss()
 
-    for _ in range(450):
+    for _ in range(650):
         logits = model(x)
         loss = loss_fn(logits, y)
         optimizer.zero_grad()
@@ -130,7 +175,7 @@ def export_model():
         espdl_export_file=str(ESPDL_MODEL_PATH),
         calib_dataloader=dataloader,
         calib_steps=min(64, len(dataloader)),
-        input_shape=[1, 8],
+        input_shape=[1, FEATURE_COUNT],
         inputs=[test_input],
         target=TARGET,
         num_of_bits=NUM_OF_BITS,
