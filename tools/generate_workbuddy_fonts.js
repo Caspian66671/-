@@ -6,7 +6,8 @@ const root = path.resolve(__dirname, "..");
 const displaySource = fs.readFileSync(path.join(root, "main", "workbuddy_display_test.c"), "utf8");
 const extraSymbols = "，。；：、（）【】《》！？“”‘’";
 const hanSymbols = [...new Set(displaySource.match(/[\u3400-\u9fff]/g) || [])].join("");
-const symbols = `${hanSymbols}${extraSymbols}`;
+const glyphSeed = "维轮触摸交互专注计时本地输入云端润色桌宠反馈研伴节奏";
+const symbols = `${hanSymbols}${extraSymbols}${glyphSeed}`;
 
 const font = "C:\\Windows\\Fonts\\simhei.ttf";
 const outputs = [

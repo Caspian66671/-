@@ -152,7 +152,5 @@ void workbuddy_interaction_status_text(char *out, size_t out_size)
     }
     workbuddy_interaction_snapshot_t snapshot;
     workbuddy_interaction_get_snapshot(&snapshot);
-    snprintf(out, out_size, "专注%d分  %d轮",
-             snapshot.focus_min,
-             snapshot.focus_rounds);
+    snprintf(out, out_size, "专注%d分", snapshot.focus_min);
 }

@@ -1017,7 +1017,7 @@ static bool lvgl_show_launcher(void)
     lvgl_label(pet_card, "小伙伴在线", 32, 30, &workbuddy_cn_28, 0x10283e);
     lvgl_card(pet_card, 266, 42, 10, 10, 0x2ecc71, LV_RADIUS_CIRCLE);
     lvgl_label(pet_card, "在线", 284, 35, &workbuddy_cn_20, 0x2c8f57);
-    lvgl_label(pet_card, "今日建议", 34, 88, &workbuddy_cn_20, 0x577489);
+    lvgl_label(pet_card, "今日陪伴", 34, 88, &workbuddy_cn_20, 0x577489);
     lv_obj_t *tip_label = lvgl_label(pet_card, s_pet_tip, 34, 118, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(tip_label, 276);
 
@@ -1034,7 +1034,7 @@ static bool lvgl_show_launcher(void)
     char focus_text[32];
     workbuddy_interaction_status_text(focus_text, sizeof(focus_text));
     lv_obj_t *focus_label = lvgl_label(pet_card, focus_text, 194, 262, &workbuddy_cn_20, 0x577489);
-    lvgl_label_width(focus_label, 132);
+    lvgl_label_width(focus_label, 116);
     lv_obj_t *analysis_btn = lvgl_card(pet_card, 180, 282, 142, 38, 0xe8f8ff, 19);
     lv_obj_set_style_bg_opa(analysis_btn, LV_OPA_80, 0);
     lv_obj_set_style_border_width(analysis_btn, 2, 0);
@@ -1110,36 +1110,42 @@ static bool lvgl_show_pet_ai_page(void)
     lvgl_label(scr, "生活助理", 110, 24, &workbuddy_cn_28, 0xffffff);
 
     lv_obj_t *main_card = lvgl_glass_card(scr, 92, 132, 430, 340, 28);
-    lvgl_label(main_card, "今日状态", 40, 34, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(main_card, "当前状态", 42, 92, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *state_label = lvgl_label(main_card, s_pet_state, 42, 122, &workbuddy_cn_28, s_pet_accent);
-    lvgl_label_width(state_label, 330);
-    lvgl_label(main_card, "参考信息", 42, 180, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *reason_label = lvgl_label(main_card, s_pet_combined_reason, 42, 212, &workbuddy_cn_20, 0x10283e);
-    lvgl_label_width(reason_label, 330);
-    lvgl_label(main_card, "小建议", 42, 258, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *tip_label = lvgl_label(main_card, s_pet_combined_tip, 42, 288, &workbuddy_cn_20, 0x10283e);
+    lvgl_label(main_card, "研伴节奏", 40, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_label(main_card, "当前建议", 42, 92, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *tip_label = lvgl_label(main_card, s_pet_combined_tip, 42, 124, &workbuddy_cn_28, s_pet_accent);
     lvgl_label_width(tip_label, 330);
+    lvgl_label(main_card, "本地输入", 42, 188, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *feature_chip = lvgl_card(main_card, 42, 222, 102, 38, 0xe8f8ff, 19);
+    lv_obj_set_style_bg_opa(feature_chip, LV_OPA_80, 0);
+    lvgl_center_label(feature_chip, "14维模型", 0, 8, 102, &workbuddy_cn_20, 0x1c7ed6);
+    lv_obj_t *touch_chip = lvgl_card(main_card, 160, 222, 104, 38, 0xf3f0ff, 19);
+    lv_obj_set_style_bg_opa(touch_chip, LV_OPA_80, 0);
+    lvgl_center_label(touch_chip, "触摸交互", 0, 8, 104, &workbuddy_cn_20, 0x7651d9);
+    lv_obj_t *focus_chip = lvgl_card(main_card, 280, 222, 104, 38, 0xfff6df, 19);
+    lv_obj_set_style_bg_opa(focus_chip, LV_OPA_80, 0);
+    lvgl_center_label(focus_chip, "专注计时", 0, 8, 104, &workbuddy_cn_20, 0xa96b00);
+    lv_obj_t *note_label = lvgl_label(main_card, "按时间和互动切换提醒", 42, 292, &workbuddy_cn_20, 0x577489);
+    lvgl_label_width(note_label, 330);
 
     lv_obj_t *pet_card = lvgl_glass_card(scr, 556, 132, 360, 340, 28);
-    lvgl_card(pet_card, 68, 50, 118, 118, 0xffd23f, 59);
-    lvgl_card(pet_card, 152, 98, 134, 64, 0xffffff, 32);
-    lvgl_card(pet_card, 126, 74, 78, 78, 0xffffff, LV_RADIUS_CIRCLE);
-    lv_obj_t *pill = lvgl_card(pet_card, 54, 202, 252, 48, 0xe8f8ff, 24);
+    lvgl_label(pet_card, "桌宠反馈", 44, 34, &workbuddy_cn_28, 0x10283e);
+    lvgl_draw_pet_avatar(pet_card, 44, 84);
+    lvgl_label(pet_card, "当前状态", 198, 96, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *state_label = lvgl_label(pet_card, s_pet_state, 198, 128, &workbuddy_cn_28, s_pet_accent);
+    lvgl_label_width(state_label, 110);
+    lv_obj_t *pill = lvgl_card(pet_card, 54, 220, 252, 46, 0xe8f8ff, 23);
     lv_obj_set_style_bg_opa(pill, LV_OPA_80, 0);
     lv_obj_set_style_border_width(pill, 2, 0);
     lv_obj_set_style_border_color(pill, lv_color_hex(s_pet_accent), 0);
     lvgl_label(pill, s_pet_last_action == WORKBUDDY_ACTION_WEATHER ? "天气提醒" :
                s_pet_last_action == WORKBUDDY_ACTION_TIME ? "日程提醒" : "生活提醒",
-               58, 11, &workbuddy_cn_20, s_pet_accent);
+               58, 10, &workbuddy_cn_20, s_pet_accent);
 
     char service_text[32];
     snprintf(service_text, sizeof(service_text), "已服务%d次", s_pet_service_count);
-    lvgl_label(pet_card, "模型亮点", 64, 270, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *model_label = lvgl_label(pet_card, s_pet_model_tip, 64, 300, &workbuddy_cn_20, 0x10283e);
+    lvgl_label(pet_card, service_text, 64, 278, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *model_label = lvgl_label(pet_card, "本地判断  云端润色", 64, 306, &workbuddy_cn_20, 0x10283e);
     lvgl_label_width(model_label, 238);
-    lvgl_label(scr, service_text, 616, 488, &workbuddy_cn_20, 0x577489);
-    lvgl_label(scr, "硕士研伴桌宠", 740, 488, &workbuddy_cn_20, 0x577489);
 
     lvgl_port_unlock();
     return true;
