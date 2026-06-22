@@ -19,6 +19,7 @@ set(workbuddy_priv_requires
     esp_lcd_ek79007
     esp_lcd_touch_gt911
     esp_lvgl_port
+    espressif__esp32_p4_function_ev_board
     lvgl
     lwip
     nvs_flash

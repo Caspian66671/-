@@ -18,7 +18,7 @@ idf_component_register(
         esp_hw_support
         esp_driver_cam
         espressif__esp32_p4_function_ev_board
-        espressif__human_face_detect
+        human_face_detect
         espressif__esp-dl)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
@@ -27,6 +27,6 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     CONFIG_ECHOMATE_FACE_DETECTOR_ESP_WHO=1
     CONFIG_ECHOMATE_ENABLE_EXPRESSION_HEURISTIC=1
     CONFIG_ECHOMATE_EXPRESSION_BACKEND_HEURISTIC=1
-    CONFIG_ECHOMATE_VISION_MODEL_INPUT_GRAY8=1
+    CONFIG_ECHOMATE_VISION_MODEL_INPUT_RGB888=1
     CONFIG_ECHOMATE_ENABLE_ESP_DL=0
     ECHOMATE_EXPRESSION_ESP_DL_MODEL_EMBEDDED=0)

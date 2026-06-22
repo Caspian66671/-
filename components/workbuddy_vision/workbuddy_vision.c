@@ -89,12 +89,13 @@ static void vision_task(void *arg)
     while (true) {
         camera_frame_msg_t frame = {0};
         vision_result_msg_t result = {0};
-        esp_err_t capture_ret = camera_port_capture(&frame);
-        esp_err_t run_ret = capture_ret == ESP_OK ? vision_model_run(&frame, &result) : capture_ret;
-
+        esp_err_t run_ret = ESP_ERR_INVALID_STATE;
         if (camera_port_get_status(&camera_status) == ESP_OK) {
             snapshot.camera_ready = camera_status.state == ECHOMATE_CAMERA_STATE_OK;
-            if (!snapshot.camera_ready && camera_status.last_error != ESP_OK) {
+            if (snapshot.camera_ready) {
+                esp_err_t capture_ret = camera_port_capture(&frame);
+                run_ret = capture_ret == ESP_OK ? vision_model_run(&frame, &result) : capture_ret;
+            } else if (camera_status.last_error != ESP_OK) {
                 run_ret = camera_status.last_error;
             }
         }

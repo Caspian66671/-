@@ -113,7 +113,15 @@ idf.py -p COM3 flash
 ```
 
 本次 ESP-DL 接入已用 ESP-IDF v5.5.4 构建通过。
-项目分区表把 factory app 分区扩到 8M。融合 ESP-WHO、人脸模型和情绪页面后，当前固件仍有约 59% app 分区空间可供后续扩展。
+项目分区表把 factory app 分区扩到 8M。融合 ESP-DL 研伴模型、ESP-WHO 人脸模型和情绪页面后，当前固件大小约 4.13 MiB，仍有约 48% app 分区空间可供后续扩展。
+
+当前合并版本已在 ESP32-P4 实板同时验证：
+
+- LVGL 屏幕和 GT911 触摸正常启动。
+- `workbuddy_advisor.espdl` 加载并完成板端热身推理。
+- SC2336 被识别，MIPI-CSI 连续采集约 8 FPS。
+- ESP-WHO 使用 96x96 RGB888 输入持续处理摄像头帧。
+- 触摸与摄像头共用开发板 BSP I2C 总线，避免重复创建总线导致黑屏或相机启动失败。
 
 ## 新电脑从零运行
 

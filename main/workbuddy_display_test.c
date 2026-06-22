@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
+#include "bsp/esp32_p4_function_ev_board.h"
 #include "workbuddy_actions.h"
 #include "workbuddy_interaction.h"
 #include "workbuddy_launcher.h"
@@ -1798,17 +1799,10 @@ static void init_lcd(esp_lcd_panel_handle_t *out_panel)
 
 static void init_touch(void)
 {
-    ESP_LOGI(TAG, "Create touch I2C bus SDA=%d SCL=%d", TOUCH_I2C_SDA, TOUCH_I2C_SCL);
-    i2c_master_bus_handle_t i2c_bus = NULL;
-    i2c_master_bus_config_t i2c_bus_config = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = I2C_NUM_0,
-        .sda_io_num = TOUCH_I2C_SDA,
-        .scl_io_num = TOUCH_I2C_SCL,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
-    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_config, &i2c_bus));
+    ESP_LOGI(TAG, "Use shared BSP I2C bus SDA=%d SCL=%d", TOUCH_I2C_SDA, TOUCH_I2C_SCL);
+    ESP_ERROR_CHECK(bsp_i2c_init());
+    i2c_master_bus_handle_t i2c_bus = bsp_i2c_get_handle();
+    ESP_ERROR_CHECK(i2c_bus ? ESP_OK : ESP_ERR_INVALID_STATE);
 
     esp_lcd_panel_io_handle_t tp_io = NULL;
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();

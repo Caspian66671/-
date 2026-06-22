@@ -393,6 +393,8 @@ void app_main(void)
 
     init_trigger_queue();
     workbuddy_start_screen_ui();
+    // Keep model initialization from blocking the display's first frame.
+    vTaskDelay(pdMS_TO_TICKS(800));
     workbuddy_edge_advisor_init();
     esp_err_t vision_ret = workbuddy_vision_start(vision_snapshot_callback, NULL);
     if (vision_ret != ESP_OK) {
