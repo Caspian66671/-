@@ -3,6 +3,7 @@ build_*/
 managed_components/
 sdkconfig
 sdkconfig.old
+sdkconfig.local
 *.log
 last_event.json
 .claude/

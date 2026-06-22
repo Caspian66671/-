@@ -3,9 +3,11 @@
 #include <string.h>
 
 #include "echomate_app.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 static const char *TAG = "workbuddy_vision";
@@ -14,12 +16,37 @@ static const char *TAG = "workbuddy_vision";
 #define VISION_TASK_PRIORITY 4
 #define VISION_START_DELAY_MS 2500
 #define VISION_FRAME_PERIOD_MS 100
+#define VISION_PREVIEW_PIXELS \
+    (WORKBUDDY_VISION_PREVIEW_WIDTH * WORKBUDDY_VISION_PREVIEW_HEIGHT)
 
 static portMUX_TYPE s_snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
 static workbuddy_vision_snapshot_t s_snapshot;
 static workbuddy_vision_callback_t s_callback;
 static void *s_callback_user_data;
 static bool s_started;
+static SemaphoreHandle_t s_preview_mutex;
+static uint16_t *s_preview_pixels;
+static uint32_t s_preview_frame_id;
+static bool s_preview_valid;
+
+static void update_preview(const camera_frame_msg_t *frame)
+{
+    if (!frame || !frame->buffer || frame->format != ECHOMATE_PIXEL_RGB565 ||
+        frame->width != WORKBUDDY_VISION_PREVIEW_WIDTH ||
+        frame->height != WORKBUDDY_VISION_PREVIEW_HEIGHT ||
+        frame->length < VISION_PREVIEW_PIXELS * sizeof(uint16_t) ||
+        !s_preview_mutex || !s_preview_pixels) {
+        return;
+    }
+
+    if (xSemaphoreTake(s_preview_mutex, pdMS_TO_TICKS(40)) == pdTRUE) {
+        memcpy(s_preview_pixels, frame->buffer,
+               VISION_PREVIEW_PIXELS * sizeof(uint16_t));
+        s_preview_frame_id = frame->frame_id;
+        s_preview_valid = true;
+        xSemaphoreGive(s_preview_mutex);
+    }
+}
 
 static workbuddy_vision_expression_t map_expression(echomate_expression_t expression)
 {
@@ -95,10 +122,14 @@ static void vision_task(void *arg)
             if (snapshot.camera_ready) {
                 esp_err_t capture_ret = camera_port_capture(&frame);
                 run_ret = capture_ret == ESP_OK ? vision_model_run(&frame, &result) : capture_ret;
+                if (capture_ret == ESP_OK) {
+                    update_preview(&frame);
+                }
             } else if (camera_status.last_error != ESP_OK) {
                 run_ret = camera_status.last_error;
             }
         }
+        snapshot.camera_fps_x10 = camera_status.fps_x10;
         snapshot.service_ready = run_ret == ESP_OK;
         snapshot.last_error = run_ret;
         snapshot.updated_at_ms = esp_timer_get_time() / 1000;
@@ -110,12 +141,24 @@ static void vision_task(void *arg)
             snapshot.confidence = result.confidence;
             snapshot.inference_ms = (result.inference_us + 999U) / 1000U;
             snapshot.frame_id = result.frame_id;
+            snapshot.face_x = result.face_x;
+            snapshot.face_y = result.face_y;
+            snapshot.face_width = result.face_width;
+            snapshot.face_height = result.face_height;
+            snapshot.input_width = result.input_width;
+            snapshot.input_height = result.input_height;
         } else {
             snapshot.face_detected = false;
             snapshot.expression = WORKBUDDY_VISION_EXPRESSION_UNKNOWN;
             snapshot.backend = WORKBUDDY_VISION_BACKEND_NONE;
             snapshot.confidence = 0;
             snapshot.inference_ms = 0;
+            snapshot.face_x = 0;
+            snapshot.face_y = 0;
+            snapshot.face_width = 0;
+            snapshot.face_height = 0;
+            snapshot.input_width = 0;
+            snapshot.input_height = 0;
         }
 
         publish_snapshot(&snapshot);
@@ -134,6 +177,25 @@ esp_err_t workbuddy_vision_start(workbuddy_vision_callback_t callback, void *use
     memset(&s_snapshot, 0, sizeof(s_snapshot));
     s_snapshot.last_error = ESP_ERR_INVALID_STATE;
 
+    s_preview_mutex = xSemaphoreCreateMutex();
+    s_preview_pixels = heap_caps_malloc(VISION_PREVIEW_PIXELS * sizeof(uint16_t),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_preview_pixels) {
+        s_preview_pixels = heap_caps_malloc(VISION_PREVIEW_PIXELS * sizeof(uint16_t),
+                                            MALLOC_CAP_8BIT);
+    }
+    if (!s_preview_mutex || !s_preview_pixels) {
+        if (s_preview_mutex) {
+            vSemaphoreDelete(s_preview_mutex);
+            s_preview_mutex = NULL;
+        }
+        if (s_preview_pixels) {
+            heap_caps_free(s_preview_pixels);
+            s_preview_pixels = NULL;
+        }
+        return ESP_ERR_NO_MEM;
+    }
+
     BaseType_t created = xTaskCreate(vision_task,
                                      "workbuddy_vision",
                                      VISION_TASK_STACK,
@@ -141,6 +203,10 @@ esp_err_t workbuddy_vision_start(workbuddy_vision_callback_t callback, void *use
                                      VISION_TASK_PRIORITY,
                                      NULL);
     if (created != pdPASS) {
+        vSemaphoreDelete(s_preview_mutex);
+        s_preview_mutex = NULL;
+        heap_caps_free(s_preview_pixels);
+        s_preview_pixels = NULL;
         return ESP_ERR_NO_MEM;
     }
     s_started = true;
@@ -155,4 +221,29 @@ void workbuddy_vision_get_snapshot(workbuddy_vision_snapshot_t *snapshot)
     portENTER_CRITICAL(&s_snapshot_lock);
     *snapshot = s_snapshot;
     portEXIT_CRITICAL(&s_snapshot_lock);
+}
+
+esp_err_t workbuddy_vision_copy_preview(uint16_t *pixels,
+                                        size_t pixel_count,
+                                        uint32_t *frame_id)
+{
+    if (!pixels || pixel_count < VISION_PREVIEW_PIXELS) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_preview_mutex || !s_preview_pixels) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTake(s_preview_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (!s_preview_valid) {
+        xSemaphoreGive(s_preview_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    memcpy(pixels, s_preview_pixels, VISION_PREVIEW_PIXELS * sizeof(uint16_t));
+    if (frame_id) {
+        *frame_id = s_preview_frame_id;
+    }
+    xSemaphoreGive(s_preview_mutex);
+    return ESP_OK;
 }

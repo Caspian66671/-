@@ -7,6 +7,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_ek79007.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_io.h"
@@ -44,6 +45,8 @@ LV_FONT_DECLARE(workbuddy_cn_28);
 #define TOUCH_I2C_FREQ_HZ 400000
 #define TOUCH_POLL_MS 40
 #define TOUCH_RELEASE_MS 280
+#define EMOTION_PREVIEW_PIXELS \
+    (WORKBUDDY_VISION_PREVIEW_WIDTH * WORKBUDDY_VISION_PREVIEW_HEIGHT)
 
 static esp_ldo_channel_handle_t s_mipi_phy_ldo;
 static esp_lcd_touch_handle_t s_touch;
@@ -72,6 +75,10 @@ static workbuddy_emotion_state_t s_emotion_state = WORKBUDDY_EMOTION_UNKNOWN;
 static workbuddy_vision_snapshot_t s_vision_snapshot;
 static bool s_vision_snapshot_valid;
 static int64_t s_last_vision_page_refresh_ms;
+static uint16_t *s_emotion_preview_pixels;
+static uint32_t s_emotion_preview_frame_id;
+static lv_image_dsc_t s_emotion_preview_dsc;
+static lv_obj_t *s_emotion_preview_image;
 
 static void copy_field_value(const char *text, const char *key, char *out, size_t out_size);
 static int parse_percent_value(const char *text);
@@ -80,6 +87,7 @@ static void refresh_pet_combined_tip(void);
 static bool lvgl_show_pet_ai_page(void);
 static bool lvgl_show_suggestion_page(void);
 static bool lvgl_show_emotion_page(void);
+static bool lvgl_refresh_emotion_preview_only(void);
 static void update_pet_from_ai_context(void);
 
 static void lvgl_set_bg(lv_obj_t *obj, uint32_t color)
@@ -1297,14 +1305,6 @@ static bool lvgl_show_suggestion_page(void)
     return true;
 }
 
-static const char *vision_face_text(const workbuddy_vision_snapshot_t *snapshot)
-{
-    if (!snapshot->camera_ready) {
-        return "摄像头初始化中";
-    }
-    return snapshot->face_detected ? "已检测到人脸" : "等待人脸进入";
-}
-
 static const char *vision_expression_text(const workbuddy_vision_snapshot_t *snapshot)
 {
     if (!snapshot->face_detected) {
@@ -1323,12 +1323,6 @@ static const char *vision_expression_text(const workbuddy_vision_snapshot_t *sna
     }
 }
 
-static const char *vision_backend_text(workbuddy_vision_backend_t backend)
-{
-    return backend == WORKBUDDY_VISION_BACKEND_ESP_WHO ?
-        "人脸模型  ESP-WHO" : "人脸检测  轻量后备";
-}
-
 static uint32_t vision_expression_accent(const workbuddy_vision_snapshot_t *snapshot)
 {
     switch (snapshot->expression) {
@@ -1343,68 +1337,189 @@ static uint32_t vision_expression_accent(const workbuddy_vision_snapshot_t *snap
     }
 }
 
+static bool refresh_emotion_preview(void)
+{
+    if (!s_emotion_preview_pixels) {
+        s_emotion_preview_pixels = heap_caps_malloc(
+            EMOTION_PREVIEW_PIXELS * sizeof(uint16_t),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_emotion_preview_pixels) {
+            s_emotion_preview_pixels = heap_caps_malloc(
+                EMOTION_PREVIEW_PIXELS * sizeof(uint16_t), MALLOC_CAP_8BIT);
+        }
+        if (!s_emotion_preview_pixels) {
+            return false;
+        }
+
+        memset(&s_emotion_preview_dsc, 0, sizeof(s_emotion_preview_dsc));
+        s_emotion_preview_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+        s_emotion_preview_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+        s_emotion_preview_dsc.header.w = WORKBUDDY_VISION_PREVIEW_WIDTH;
+        s_emotion_preview_dsc.header.h = WORKBUDDY_VISION_PREVIEW_HEIGHT;
+        s_emotion_preview_dsc.header.stride = WORKBUDDY_VISION_PREVIEW_WIDTH * sizeof(uint16_t);
+        s_emotion_preview_dsc.data_size = EMOTION_PREVIEW_PIXELS * sizeof(uint16_t);
+        s_emotion_preview_dsc.data = (const uint8_t *)s_emotion_preview_pixels;
+    }
+
+    return workbuddy_vision_copy_preview(s_emotion_preview_pixels,
+                                         EMOTION_PREVIEW_PIXELS,
+                                         &s_emotion_preview_frame_id) == ESP_OK;
+}
+
+static bool lvgl_refresh_emotion_preview_only(void)
+{
+    if (workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION ||
+        !s_emotion_preview_image || !refresh_emotion_preview() ||
+        !lvgl_port_lock(80)) {
+        return false;
+    }
+    if (workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION ||
+        !s_emotion_preview_image) {
+        lvgl_port_unlock();
+        return false;
+    }
+    lv_image_set_src(s_emotion_preview_image, &s_emotion_preview_dsc);
+    lv_obj_invalidate(s_emotion_preview_image);
+    lvgl_port_unlock();
+    return true;
+}
+
+static void lvgl_draw_face_box(lv_obj_t *parent,
+                               const workbuddy_vision_snapshot_t *snapshot,
+                               int image_x,
+                               int image_y)
+{
+    if (!snapshot->face_detected || snapshot->input_width == 0 ||
+        snapshot->input_height == 0 || snapshot->face_width == 0 ||
+        snapshot->face_height == 0) {
+        return;
+    }
+
+    int x = image_x + (snapshot->face_x * WORKBUDDY_VISION_PREVIEW_WIDTH) /
+        snapshot->input_width;
+    int y = image_y + (snapshot->face_y * WORKBUDDY_VISION_PREVIEW_HEIGHT) /
+        snapshot->input_height;
+    int w = (snapshot->face_width * WORKBUDDY_VISION_PREVIEW_WIDTH) /
+        snapshot->input_width;
+    int h = (snapshot->face_height * WORKBUDDY_VISION_PREVIEW_HEIGHT) /
+        snapshot->input_height;
+
+    if (w < 18) w = 18;
+    if (h < 18) h = 18;
+    if (x < image_x) x = image_x;
+    if (y < image_y) y = image_y;
+    if (x + w > image_x + WORKBUDDY_VISION_PREVIEW_WIDTH) {
+        w = image_x + WORKBUDDY_VISION_PREVIEW_WIDTH - x;
+    }
+    if (y + h > image_y + WORKBUDDY_VISION_PREVIEW_HEIGHT) {
+        h = image_y + WORKBUDDY_VISION_PREVIEW_HEIGHT - y;
+    }
+
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_pos(box, x, y);
+    lv_obj_set_size(box, w, h);
+    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(box, 3, 0);
+    lv_obj_set_style_border_color(box, lv_color_hex(0xffe45c), 0);
+    lv_obj_set_style_radius(box, 4, 0);
+}
+
 static bool lvgl_show_emotion_page(void)
 {
     workbuddy_vision_snapshot_t snapshot;
     workbuddy_vision_get_snapshot(&snapshot);
+    bool preview_ready = refresh_emotion_preview();
     if (!s_lvgl_ready || !lvgl_port_lock(1000)) {
         return false;
     }
 
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);
-    lvgl_set_vertical_gradient(scr, 0xe9fbf8, 0xd5f3ff);
-    lvgl_card(scr, 0, 0, LCD_H_RES, 86, 0x19afd8, 0);
-    lv_obj_set_style_bg_opa(lvgl_card(scr, 0, 86, LCD_H_RES, 88, 0x8fe2f5, 0), LV_OPA_40, 0);
-    lvgl_label(scr, "返回", 32, 28, &workbuddy_cn_20, 0xffffff);
-    lvgl_label(scr, "情绪识别", 110, 24, &workbuddy_cn_28, 0xffffff);
+    s_emotion_preview_image = NULL;
+    lvgl_set_vertical_gradient(scr, 0x06111c, 0x0b2635);
+    lv_obj_t *header = lvgl_card(scr, 0, 0, LCD_H_RES, 82, 0x0b3650, 0);
+    lvgl_set_vertical_gradient(header, 0x0a2740, 0x086179);
+    lvgl_label(header, "返回", 24, 27, &workbuddy_cn_20, 0xffffff);
+    lvgl_label(header, "ECHOMATE", 112, 20, &lv_font_montserrat_28, 0xffffff);
+    lvgl_label(header, "EDGE AI COMPANION", 320, 29, &lv_font_montserrat_20, 0x99f3ff);
+    lv_obj_t *online = lvgl_card(header, 824, 18, 166, 46, 0x20d9d2, 6);
+    lvgl_center_label(online, snapshot.service_ready ? "AI ONLINE" : "AI STARTING",
+                      0, 12, 166, &lv_font_montserrat_20, 0x06283a);
 
-    lv_obj_t *vision_card = lvgl_glass_card(scr, 78, 132, 410, 340, 28);
-    lvgl_label(vision_card, "边缘视觉", 38, 30, &workbuddy_cn_28, 0x10283e);
-    lvgl_label(vision_card, "摄像头状态", 40, 82, &workbuddy_cn_20, 0x577489);
-    lv_obj_t *camera_pill = lvgl_card(vision_card, 40, 116, 328, 50,
-                                      snapshot.camera_ready ? 0xe2f8ee : 0xfff4dc, 24);
-    lv_obj_set_style_border_width(camera_pill, 2, 0);
-    lv_obj_set_style_border_color(camera_pill,
-                                  lv_color_hex(snapshot.camera_ready ? 0x20a56b : 0xd98b16), 0);
-    lvgl_label(camera_pill, vision_face_text(&snapshot), 24, 13, &workbuddy_cn_20,
-               snapshot.camera_ready ? 0x16744c : 0xa26408);
+    lv_obj_t *camera_card = lvgl_card(scr, 28, 102, 466, 326, 0x0c3047, 8);
+    lv_obj_set_style_border_width(camera_card, 2, 0);
+    lv_obj_set_style_border_color(camera_card, lv_color_hex(0x1cc9d5), 0);
+    lvgl_label(camera_card, "CAMERA", 20, 14, &lv_font_montserrat_20, 0xb8f7ff);
+    const int image_x = 20;
+    const int image_y = 58;
+    lv_obj_t *preview_frame = lvgl_card(camera_card, image_x - 4, image_y - 4,
+                                        WORKBUDDY_VISION_PREVIEW_WIDTH + 8,
+                                        WORKBUDDY_VISION_PREVIEW_HEIGHT + 8,
+                                        0x061018, 4);
+    lv_obj_set_style_border_width(preview_frame, 2, 0);
+    lv_obj_set_style_border_color(preview_frame, lv_color_hex(0x5cf6ff), 0);
+    if (preview_ready) {
+        lv_obj_t *image = lv_image_create(camera_card);
+        lv_image_set_src(image, &s_emotion_preview_dsc);
+        lv_obj_set_pos(image, image_x, image_y);
+        s_emotion_preview_image = image;
+        lvgl_draw_face_box(camera_card, &snapshot, image_x, image_y);
+    } else {
+        lv_obj_t *waiting = lvgl_label(camera_card, "CAMERA STARTING", image_x + 38,
+                                       image_y + 94, &lv_font_montserrat_20, 0x6fa2b5);
+        lvgl_label_width(waiting, 220);
+    }
+    char camera_meta[96];
+    snprintf(camera_meta, sizeof(camera_meta),
+             "FACE %s\nFPS %u.%u\nFRAME %lu\nRGB565",
+             snapshot.face_detected ? "YES" : "NO",
+             snapshot.camera_fps_x10 / 10, snapshot.camera_fps_x10 % 10,
+             (unsigned long)s_emotion_preview_frame_id);
+    lv_obj_t *camera_meta_label = lvgl_label(camera_card, camera_meta, 330, 72,
+                                             &lv_font_montserrat_20, 0xa6d9e8);
+    lvgl_label_width(camera_meta_label, 116);
 
-    lvgl_label(vision_card, "本地推理链路", 40, 194, &workbuddy_cn_20, 0x577489);
-    lvgl_label(vision_card, vision_backend_text(snapshot.backend), 40, 226,
-               &workbuddy_cn_20, 0x10283e);
-    lvgl_label(vision_card, "表情判定  本地轻量", 40, 260, &workbuddy_cn_20, 0x10283e);
-    lv_obj_t *edge_note = lvgl_label(vision_card, "图像数据只在设备端处理", 40, 298,
-                                     &workbuddy_cn_20, 0x577489);
-    lvgl_label_width(edge_note, 328);
-
-    lv_obj_t *emotion_card = lvgl_glass_card(scr, 516, 132, 430, 340, 28);
-    lvgl_label(emotion_card, "当前情绪", 40, 30, &workbuddy_cn_28, 0x10283e);
+    lv_obj_t *emotion_card = lvgl_card(scr, 514, 102, 242, 326, 0x0c3c50, 8);
+    lv_obj_set_style_border_width(emotion_card, 2, 0);
+    lv_obj_set_style_border_color(emotion_card, lv_color_hex(0x20d9d2), 0);
+    lvgl_label(emotion_card, "EMOTION", 20, 18, &lv_font_montserrat_20, 0xb8f7ff);
     uint32_t accent = vision_expression_accent(&snapshot);
-    lv_obj_t *face = lvgl_card(emotion_card, 40, 92, 118, 118, 0xffdd68, LV_RADIUS_CIRCLE);
-    lv_obj_set_style_shadow_width(face, 12, 0);
-    lv_obj_set_style_shadow_opa(face, LV_OPA_20, 0);
-    lvgl_card(face, 28, 36, 11, 11, 0x16324f, LV_RADIUS_CIRCLE);
-    lvgl_card(face, 79, 36, 11, 11, 0x16324f, LV_RADIUS_CIRCLE);
-    lvgl_card(face, 38, 76, 42, 7, 0x16324f, 4);
-
-    lv_obj_t *expression = lvgl_label(emotion_card, vision_expression_text(&snapshot), 190, 106,
-                                      &workbuddy_cn_28, accent);
-    lvgl_label_width(expression, 190);
-    char confidence_text[40];
-    snprintf(confidence_text, sizeof(confidence_text), "置信度  %u%%", snapshot.confidence);
-    lvgl_label(emotion_card, confidence_text, 190, 154, &workbuddy_cn_20, 0x577489);
-    char inference_text[48];
-    snprintf(inference_text, sizeof(inference_text), "本地延迟  %lums",
+    lv_obj_t *expression = lvgl_label(emotion_card, vision_expression_text(&snapshot),
+                                      20, 66, &workbuddy_cn_28, accent);
+    lvgl_label_width(expression, 200);
+    char emotion_meta[128];
+    snprintf(emotion_meta, sizeof(emotion_meta),
+             "FACE: %s\nCONF: %03u\nLOCAL: %lums\nMODEL: ESP-WHO",
+             snapshot.face_detected ? "YES" : "NO", snapshot.confidence,
              (unsigned long)snapshot.inference_ms);
-    lvgl_label(emotion_card, inference_text, 190, 188, &workbuddy_cn_20, 0x577489);
+    lv_obj_t *emotion_meta_label = lvgl_label(emotion_card, emotion_meta, 20, 124,
+                                              &lv_font_montserrat_20, 0xb8e4ee);
+    lvgl_label_width(emotion_meta_label, 202);
 
-    lv_obj_t *result_pill = lvgl_card(emotion_card, 40, 246, 350, 50, 0xe8f8ff, 25);
-    lv_obj_set_style_border_width(result_pill, 2, 0);
-    lv_obj_set_style_border_color(result_pill, lv_color_hex(accent), 0);
-    lvgl_center_label(result_pill,
-                      snapshot.face_detected ? "本地识别结果已更新" : "等待摄像头识别人脸",
-                      0, 13, 350, &workbuddy_cn_20, accent);
+    lv_obj_t *system_card = lvgl_card(scr, 776, 102, 220, 326, 0x0a2b41, 8);
+    lv_obj_set_style_border_width(system_card, 2, 0);
+    lv_obj_set_style_border_color(system_card, lv_color_hex(0x187f9e), 0);
+    lvgl_label(system_card, "SYSTEM", 18, 18, &lv_font_montserrat_20, 0xb8f7ff);
+    char system_meta[160];
+    snprintf(system_meta, sizeof(system_meta),
+             "LCD  OK\nGT911 OK\nCAM  %s\nAI   %s\nRGB  288x216\nLOCAL ONLY\nNET  %s",
+             snapshot.camera_ready ? "OK" : "WAIT",
+             snapshot.backend == WORKBUDDY_VISION_BACKEND_ESP_WHO ? "WHO OK" : "WAIT",
+             snapshot.service_ready ? "READY" : "WAIT");
+    lv_obj_t *system_meta_label = lvgl_label(system_card, system_meta, 18, 64,
+                                             &lv_font_montserrat_20, 0x8deaf3);
+    lvgl_label_width(system_meta_label, 184);
+
+    lv_obj_t *response = lvgl_card(scr, 28, 452, 968, 116, 0x0b3048, 8);
+    lv_obj_set_style_border_width(response, 2, 0);
+    lv_obj_set_style_border_color(response, lv_color_hex(0x147e9d), 0);
+    lvgl_label(response, "RESPONSE", 22, 16, &lv_font_montserrat_20, 0x7edce8);
+    const char *response_text = snapshot.face_detected ?
+        (snapshot.expression == WORKBUDDY_VISION_EXPRESSION_HAPPY ?
+            "POSITIVE AND ENGAGED" : "CALM AND LISTENING") :
+        "WAITING FOR FACE";
+    lvgl_label(response, response_text, 22, 54, &lv_font_montserrat_28, 0xffffff);
 
     lvgl_port_unlock();
     return true;
@@ -1797,17 +1912,28 @@ static void init_lcd(esp_lcd_panel_handle_t *out_panel)
     screen_backlight_on();
 }
 
-static void init_touch(void)
+static bool init_touch(void)
 {
     ESP_LOGI(TAG, "Use shared BSP I2C bus SDA=%d SCL=%d", TOUCH_I2C_SDA, TOUCH_I2C_SCL);
-    ESP_ERROR_CHECK(bsp_i2c_init());
+    esp_err_t ret = bsp_i2c_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "BSP I2C init failed: %s", esp_err_to_name(ret));
+        return false;
+    }
     i2c_master_bus_handle_t i2c_bus = bsp_i2c_get_handle();
-    ESP_ERROR_CHECK(i2c_bus ? ESP_OK : ESP_ERR_INVALID_STATE);
+    if (!i2c_bus) {
+        ESP_LOGE(TAG, "BSP I2C handle is unavailable");
+        return false;
+    }
 
     esp_lcd_panel_io_handle_t tp_io = NULL;
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
     tp_io_config.scl_speed_hz = TOUCH_I2C_FREQ_HZ;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(i2c_bus, &tp_io_config, &tp_io));
+    ret = esp_lcd_new_panel_io_i2c(i2c_bus, &tp_io_config, &tp_io);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Touch I2C panel IO init failed: %s", esp_err_to_name(ret));
+        return false;
+    }
 
     esp_lcd_touch_config_t tp_cfg = {
         .x_max = LCD_H_RES,
@@ -1824,7 +1950,19 @@ static void init_touch(void)
             .mirror_y = false,
         },
     };
-    ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_gt911(tp_io, &tp_cfg, &s_touch));
+    vTaskDelay(pdMS_TO_TICKS(180));
+    for (int attempt = 1; attempt <= 6; ++attempt) {
+        ret = esp_lcd_touch_new_i2c_gt911(tp_io, &tp_cfg, &s_touch);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "GT911 ready after attempt %d", attempt);
+            return true;
+        }
+        ESP_LOGW(TAG, "GT911 init attempt %d/6 failed: %s",
+                 attempt, esp_err_to_name(ret));
+        vTaskDelay(pdMS_TO_TICKS(180));
+    }
+    ESP_LOGE(TAG, "GT911 unavailable; keep display and AI services running");
+    return false;
 }
 
 static void touch_task(void *arg)
@@ -1892,10 +2030,12 @@ static void screen_ui_task(void *arg)
     workbuddy_launcher_init();
     workbuddy_interaction_init();
     workbuddy_screen_show_idle();
-    init_touch();
+    bool touch_ready = init_touch();
 
-    ESP_LOGI(TAG, "Touch UI ready: launcher apps");
-    xTaskCreate(touch_task, "touch_task", 4096, NULL, 5, NULL);
+    ESP_LOGI(TAG, "Touch UI ready: launcher apps (touch=%d)", touch_ready);
+    if (touch_ready) {
+        xTaskCreate(touch_task, "touch_task", 4096, NULL, 5, NULL);
+    }
     vTaskDelete(NULL);
 }
 
@@ -1990,9 +2130,13 @@ void workbuddy_screen_update_vision_context(const workbuddy_vision_snapshot_t *s
     }
     workbuddy_screen_update_ai_context(face, emotion);
 
-    if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_EMOTION &&
-        (visual_changed || snapshot->updated_at_ms - s_last_vision_page_refresh_ms >= 2000)) {
-        s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
-        lvgl_show_emotion_page();
+    if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_EMOTION) {
+        if (visual_changed) {
+            s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
+            lvgl_show_emotion_page();
+        } else if (snapshot->updated_at_ms - s_last_vision_page_refresh_ms >= 120) {
+            s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
+            lvgl_refresh_emotion_preview_only();
+        }
     }
 }

@@ -32,7 +32,7 @@ static const char *TAG = "workbuddy";
 #define WIFI_FAIL_BIT BIT1
 #define PROXY_DISCOVERY_TIMEOUT_MS 120
 #define PROXY_HTTP_TIMEOUT_MS 6000
-#define ACTION_WIFI_WAIT_MS 60000
+#define ACTION_WIFI_WAIT_MS 15000
 #define PROXY_DISCOVERY_ATTEMPTS 5
 #define PROXY_DISCOVERY_RETRY_DELAY_MS 800
 #define PROXY_BASE_URL_MAX_LEN 128
@@ -179,13 +179,12 @@ static const char *get_proxy_base_url(void)
 
     if (strlen(CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST) > 0) {
         struct in_addr preferred_addr;
-        if (inet_aton(CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST, &preferred_addr) != 0 &&
-            tcp_port_open(preferred_addr.s_addr)) {
-            ESP_LOGI(TAG, "Preferred proxy host is reachable: %s",
+        if (inet_aton(CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST, &preferred_addr) != 0) {
+            ESP_LOGI(TAG, "Using configured proxy host: %s",
                      CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST);
             return set_proxy_base_url(preferred_addr.s_addr);
         }
-        ESP_LOGW(TAG, "Preferred proxy host not reachable: %s",
+        ESP_LOGW(TAG, "Configured proxy host is invalid: %s",
                  CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST);
     }
 
@@ -378,7 +377,7 @@ void workbuddy_enqueue_trigger(const char *source, uint32_t source_id,
 
 static void init_trigger_queue(void)
 {
-    btn_queue = xQueueCreate(1, sizeof(trigger_event_t));
+    btn_queue = xQueueCreate(4, sizeof(trigger_event_t));
     xTaskCreate(trigger_task, "trigger_task", 12288, NULL, 10, NULL);
 }
 

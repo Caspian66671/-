@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -8,6 +9,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define WORKBUDDY_VISION_PREVIEW_WIDTH 288
+#define WORKBUDDY_VISION_PREVIEW_HEIGHT 216
 
 typedef enum {
     WORKBUDDY_VISION_EXPRESSION_UNKNOWN = 0,
@@ -31,6 +35,13 @@ typedef struct {
     uint8_t confidence;
     uint32_t inference_ms;
     uint32_t frame_id;
+    uint16_t camera_fps_x10;
+    uint16_t face_x;
+    uint16_t face_y;
+    uint16_t face_width;
+    uint16_t face_height;
+    uint16_t input_width;
+    uint16_t input_height;
     int64_t updated_at_ms;
     esp_err_t last_error;
 } workbuddy_vision_snapshot_t;
@@ -40,8 +51,10 @@ typedef void (*workbuddy_vision_callback_t)(const workbuddy_vision_snapshot_t *s
 
 esp_err_t workbuddy_vision_start(workbuddy_vision_callback_t callback, void *user_data);
 void workbuddy_vision_get_snapshot(workbuddy_vision_snapshot_t *snapshot);
+esp_err_t workbuddy_vision_copy_preview(uint16_t *pixels,
+                                        size_t pixel_count,
+                                        uint32_t *frame_id);
 
 #ifdef __cplusplus
 }
 #endif
-
