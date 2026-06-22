@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
@@ -31,19 +32,24 @@ static const char *TAG = "workbuddy";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 #define PROXY_DISCOVERY_TIMEOUT_MS 120
-#define PROXY_HTTP_TIMEOUT_MS 6000
-#define ACTION_WIFI_WAIT_MS 15000
-#define PROXY_DISCOVERY_ATTEMPTS 5
-#define PROXY_DISCOVERY_RETRY_DELAY_MS 800
+#define PROXY_FAST_HTTP_TIMEOUT_MS 3000
+#define PROXY_AI_HTTP_TIMEOUT_MS 8000
+#define ACTION_WIFI_WAIT_MS 3000
+#define PROXY_DISCOVERY_ATTEMPTS 2
+#define PROXY_DISCOVERY_RETRY_DELAY_MS 250
 #define PROXY_BASE_URL_MAX_LEN 128
 #define PROXY_ACTION_URL_MAX_LEN 160
 #define PROXY_RESPONSE_MAX_LEN 1024
 #define PROXY_DISCOVERY_MAX_HOSTS 254
+#define TRIGGER_WORKER_COUNT 2
 
 static QueueHandle_t btn_queue;
 static EventGroupHandle_t wifi_event_group;
+static SemaphoreHandle_t context_mutex;
 static int wifi_retry_count;
 static char proxy_base_url[PROXY_BASE_URL_MAX_LEN];
+static char cached_weather_context[256];
+static char cached_time_context[256];
 
 typedef struct {
     const char *source;
@@ -55,8 +61,6 @@ typedef struct {
     char text[PROXY_RESPONSE_MAX_LEN];
     size_t len;
 } proxy_response_t;
-
-static proxy_response_t proxy_response;
 
 static void vision_snapshot_callback(const workbuddy_vision_snapshot_t *snapshot, void *user_data)
 {
@@ -217,8 +221,6 @@ static const char *get_proxy_base_url(void)
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data_len > 0) {
-        ESP_LOGI(TAG, "Proxy response chunk: %.*s", evt->data_len, (char *)evt->data);
-
         proxy_response_t *response = (proxy_response_t *)evt->user_data;
         if (response != NULL && response->len < sizeof(response->text) - 1) {
             size_t space = sizeof(response->text) - 1 - response->len;
@@ -236,8 +238,59 @@ static void proxy_warmup_task(void *arg)
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
     if (get_proxy_base_url() != NULL) {
         ESP_LOGI(TAG, "Fast proxy endpoint is ready");
+        workbuddy_enqueue_trigger("warmup", 0, WORKBUDDY_ACTION_WEATHER);
+        workbuddy_enqueue_trigger("warmup", 1, WORKBUDDY_ACTION_TIME);
     }
     vTaskDelete(NULL);
+}
+
+static void cache_fast_context(workbuddy_action_id_t action_id, const char *text)
+{
+    if (!text || !context_mutex ||
+        (action_id != WORKBUDDY_ACTION_WEATHER && action_id != WORKBUDDY_ACTION_TIME)) {
+        return;
+    }
+    if (xSemaphoreTake(context_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+        return;
+    }
+    char *target = action_id == WORKBUDDY_ACTION_WEATHER ?
+        cached_weather_context : cached_time_context;
+    snprintf(target, 256, "%s", text);
+    xSemaphoreGive(context_mutex);
+}
+
+static void show_fast_local_advisor(void)
+{
+    char edge_context[PROXY_RESPONSE_MAX_LEN] = {0};
+    bool has_context = false;
+    if (context_mutex && xSemaphoreTake(context_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        has_context = cached_weather_context[0] != '\0' || cached_time_context[0] != '\0';
+        snprintf(edge_context, sizeof(edge_context), "%s\n%s",
+                 cached_weather_context, cached_time_context);
+        xSemaphoreGive(context_mutex);
+    }
+    if (!has_context) {
+        return;
+    }
+
+    char interaction_context[320];
+    char advisor_text[PROXY_RESPONSE_MAX_LEN];
+    workbuddy_interaction_build_context(interaction_context, sizeof(interaction_context));
+    size_t used = strlen(edge_context);
+    if (used + 1 < sizeof(edge_context)) {
+        edge_context[used++] = '\n';
+        edge_context[used] = '\0';
+    }
+    if (used < sizeof(edge_context) - 1) {
+        strncat(edge_context, interaction_context,
+                sizeof(edge_context) - strlen(edge_context) - 1);
+    }
+    if (workbuddy_edge_advisor_infer_text(edge_context,
+                                           advisor_text,
+                                           sizeof(advisor_text))) {
+        ESP_LOGI(TAG, "Fast local advisor result: %s", advisor_text);
+        workbuddy_screen_show_result_text(WORKBUDDY_ACTION_AI_INSIGHT, advisor_text);
+    }
 }
 
 static void request_proxy_action(const workbuddy_action_t *action)
@@ -270,13 +323,14 @@ static void request_proxy_action(const workbuddy_action_t *action)
     char action_url[PROXY_ACTION_URL_MAX_LEN];
     snprintf(action_url, sizeof(action_url), "%s%s", base_url, action->path);
 
-    memset(&proxy_response, 0, sizeof(proxy_response));
+    proxy_response_t response = {0};
     esp_http_client_config_t config = {
         .url = action_url,
         .method = HTTP_METHOD_GET,
         .event_handler = http_event_handler,
-        .timeout_ms = PROXY_HTTP_TIMEOUT_MS,
-        .user_data = &proxy_response,
+        .timeout_ms = action->id == WORKBUDDY_ACTION_AI_INSIGHT ?
+            PROXY_AI_HTTP_TIMEOUT_MS : PROXY_FAST_HTTP_TIMEOUT_MS,
+        .user_data = &response,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -292,17 +346,18 @@ static void request_proxy_action(const workbuddy_action_t *action)
         int status_code = esp_http_client_get_status_code(client);
         ESP_LOGI(TAG, "Proxy HTTP status=%d, content_length=%lld",
                  status_code, esp_http_client_get_content_length(client));
-        if (proxy_response.len > 0) {
-            ESP_LOGI(TAG, "Proxy response collected: %s", proxy_response.text);
+        if (response.len > 0) {
+            ESP_LOGI(TAG, "Proxy response collected: %s", response.text);
         }
-        if (status_code >= 200 && status_code < 300 && proxy_response.len > 0) {
+        if (status_code >= 200 && status_code < 300 && response.len > 0) {
+            cache_fast_context(action->id, response.text);
             if (action->id == WORKBUDDY_ACTION_AI_INSIGHT) {
                 char interaction_context[320];
                 char edge_context[PROXY_RESPONSE_MAX_LEN];
                 char advisor_text[PROXY_RESPONSE_MAX_LEN];
                 workbuddy_interaction_build_context(interaction_context, sizeof(interaction_context));
                 edge_context[0] = '\0';
-                strncpy(edge_context, proxy_response.text, sizeof(edge_context) - 1);
+                strncpy(edge_context, response.text, sizeof(edge_context) - 1);
                 edge_context[sizeof(edge_context) - 1] = '\0';
                 size_t used = strlen(edge_context);
                 if (used + 1 < sizeof(edge_context)) {
@@ -324,7 +379,7 @@ static void request_proxy_action(const workbuddy_action_t *action)
                     workbuddy_screen_show_error(action->id);
                 }
             } else {
-                workbuddy_screen_show_result_text(action->id, proxy_response.text);
+                workbuddy_screen_show_result_text(action->id, response.text);
             }
         } else {
             workbuddy_screen_show_error(action->id);
@@ -355,7 +410,9 @@ static void trigger_task(void *arg)
             fflush(stdout);
             ESP_LOGI(TAG, "%s%lu triggered %s action",
                      event.source, (unsigned long)event.source_id, action->name);
-            workbuddy_screen_show_querying(action->id);
+            if (action->id == WORKBUDDY_ACTION_AI_INSIGHT) {
+                show_fast_local_advisor();
+            }
             request_proxy_action(action);
         }
     }
@@ -377,8 +434,13 @@ void workbuddy_enqueue_trigger(const char *source, uint32_t source_id,
 
 static void init_trigger_queue(void)
 {
+    context_mutex = xSemaphoreCreateMutex();
     btn_queue = xQueueCreate(4, sizeof(trigger_event_t));
-    xTaskCreate(trigger_task, "trigger_task", 12288, NULL, 10, NULL);
+    for (int worker = 0; worker < TRIGGER_WORKER_COUNT; ++worker) {
+        char name[16];
+        snprintf(name, sizeof(name), "trigger_%d", worker);
+        xTaskCreate(trigger_task, name, 12288, NULL, 10, NULL);
+    }
 }
 
 void app_main(void)

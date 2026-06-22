@@ -47,6 +47,9 @@ LV_FONT_DECLARE(workbuddy_cn_28);
 #define TOUCH_RELEASE_MS 280
 #define EMOTION_PREVIEW_PIXELS \
     (WORKBUDDY_VISION_PREVIEW_WIDTH * WORKBUDDY_VISION_PREVIEW_HEIGHT)
+#define EMOTION_PREVIEW_X 20
+#define EMOTION_PREVIEW_Y 58
+#define RESULT_CACHE_SIZE 1024
 
 static esp_ldo_channel_handle_t s_mipi_phy_ldo;
 static esp_lcd_touch_handle_t s_touch;
@@ -72,13 +75,22 @@ static const char *s_pet_weather_scene = "天气待更新";
 static const char *s_pet_time_scene = "日程待更新";
 static const char *s_pet_emotion_scene = "状态待更新";
 static workbuddy_emotion_state_t s_emotion_state = WORKBUDDY_EMOTION_UNKNOWN;
-static workbuddy_vision_snapshot_t s_vision_snapshot;
-static bool s_vision_snapshot_valid;
 static int64_t s_last_vision_page_refresh_ms;
 static uint16_t *s_emotion_preview_pixels;
+static uint16_t *s_emotion_preview_back_pixels;
 static uint32_t s_emotion_preview_frame_id;
 static lv_image_dsc_t s_emotion_preview_dsc;
 static lv_obj_t *s_emotion_preview_image;
+static lv_obj_t *s_emotion_waiting_label;
+static lv_obj_t *s_emotion_face_box;
+static lv_obj_t *s_emotion_camera_meta_label;
+static lv_obj_t *s_emotion_expression_label;
+static lv_obj_t *s_emotion_meta_label;
+static lv_obj_t *s_emotion_system_meta_label;
+static lv_obj_t *s_emotion_response_label;
+static lv_obj_t *s_emotion_online_label;
+static char s_cached_weather[RESULT_CACHE_SIZE];
+static char s_cached_calendar[RESULT_CACHE_SIZE];
 
 static void copy_field_value(const char *text, const char *key, char *out, size_t out_size);
 static int parse_percent_value(const char *text);
@@ -87,7 +99,7 @@ static void refresh_pet_combined_tip(void);
 static bool lvgl_show_pet_ai_page(void);
 static bool lvgl_show_suggestion_page(void);
 static bool lvgl_show_emotion_page(void);
-static bool lvgl_refresh_emotion_preview_only(void);
+static bool lvgl_refresh_emotion_live(const workbuddy_vision_snapshot_t *snapshot);
 static void update_pet_from_ai_context(void);
 
 static void lvgl_set_bg(lv_obj_t *obj, uint32_t color)
@@ -1350,6 +1362,22 @@ static bool refresh_emotion_preview(void)
         if (!s_emotion_preview_pixels) {
             return false;
         }
+        s_emotion_preview_back_pixels = heap_caps_malloc(
+            EMOTION_PREVIEW_PIXELS * sizeof(uint16_t),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_emotion_preview_back_pixels) {
+            s_emotion_preview_back_pixels = heap_caps_malloc(
+                EMOTION_PREVIEW_PIXELS * sizeof(uint16_t), MALLOC_CAP_8BIT);
+        }
+        if (!s_emotion_preview_back_pixels) {
+            heap_caps_free(s_emotion_preview_pixels);
+            s_emotion_preview_pixels = NULL;
+            return false;
+        }
+        memset(s_emotion_preview_pixels, 0,
+               EMOTION_PREVIEW_PIXELS * sizeof(uint16_t));
+        memset(s_emotion_preview_back_pixels, 0,
+               EMOTION_PREVIEW_PIXELS * sizeof(uint16_t));
 
         memset(&s_emotion_preview_dsc, 0, sizeof(s_emotion_preview_dsc));
         s_emotion_preview_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -1361,43 +1389,36 @@ static bool refresh_emotion_preview(void)
         s_emotion_preview_dsc.data = (const uint8_t *)s_emotion_preview_pixels;
     }
 
-    return workbuddy_vision_copy_preview(s_emotion_preview_pixels,
+    return workbuddy_vision_copy_preview(s_emotion_preview_back_pixels,
                                          EMOTION_PREVIEW_PIXELS,
                                          &s_emotion_preview_frame_id) == ESP_OK;
 }
 
-static bool lvgl_refresh_emotion_preview_only(void)
+static void lvgl_commit_emotion_preview(void)
 {
-    if (workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION ||
-        !s_emotion_preview_image || !refresh_emotion_preview() ||
-        !lvgl_port_lock(80)) {
-        return false;
-    }
-    if (workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION ||
-        !s_emotion_preview_image) {
-        lvgl_port_unlock();
-        return false;
-    }
-    lv_image_set_src(s_emotion_preview_image, &s_emotion_preview_dsc);
-    lv_obj_invalidate(s_emotion_preview_image);
-    lvgl_port_unlock();
-    return true;
+    uint16_t *front = s_emotion_preview_pixels;
+    s_emotion_preview_pixels = s_emotion_preview_back_pixels;
+    s_emotion_preview_back_pixels = front;
+    s_emotion_preview_dsc.data = (const uint8_t *)s_emotion_preview_pixels;
 }
 
-static void lvgl_draw_face_box(lv_obj_t *parent,
-                               const workbuddy_vision_snapshot_t *snapshot,
-                               int image_x,
-                               int image_y)
+static void lvgl_update_face_box(lv_obj_t *box,
+                                 const workbuddy_vision_snapshot_t *snapshot)
 {
-    if (!snapshot->face_detected || snapshot->input_width == 0 ||
+    if (!box || !snapshot->face_detected || snapshot->input_width == 0 ||
         snapshot->input_height == 0 || snapshot->face_width == 0 ||
         snapshot->face_height == 0) {
+        if (box) {
+            lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
-    int x = image_x + (snapshot->face_x * WORKBUDDY_VISION_PREVIEW_WIDTH) /
+    int x = EMOTION_PREVIEW_X +
+        (snapshot->face_x * WORKBUDDY_VISION_PREVIEW_WIDTH) /
         snapshot->input_width;
-    int y = image_y + (snapshot->face_y * WORKBUDDY_VISION_PREVIEW_HEIGHT) /
+    int y = EMOTION_PREVIEW_Y +
+        (snapshot->face_y * WORKBUDDY_VISION_PREVIEW_HEIGHT) /
         snapshot->input_height;
     int w = (snapshot->face_width * WORKBUDDY_VISION_PREVIEW_WIDTH) /
         snapshot->input_width;
@@ -1406,23 +1427,80 @@ static void lvgl_draw_face_box(lv_obj_t *parent,
 
     if (w < 18) w = 18;
     if (h < 18) h = 18;
-    if (x < image_x) x = image_x;
-    if (y < image_y) y = image_y;
-    if (x + w > image_x + WORKBUDDY_VISION_PREVIEW_WIDTH) {
-        w = image_x + WORKBUDDY_VISION_PREVIEW_WIDTH - x;
+    if (x < EMOTION_PREVIEW_X) x = EMOTION_PREVIEW_X;
+    if (y < EMOTION_PREVIEW_Y) y = EMOTION_PREVIEW_Y;
+    if (x + w > EMOTION_PREVIEW_X + WORKBUDDY_VISION_PREVIEW_WIDTH) {
+        w = EMOTION_PREVIEW_X + WORKBUDDY_VISION_PREVIEW_WIDTH - x;
     }
-    if (y + h > image_y + WORKBUDDY_VISION_PREVIEW_HEIGHT) {
-        h = image_y + WORKBUDDY_VISION_PREVIEW_HEIGHT - y;
+    if (y + h > EMOTION_PREVIEW_Y + WORKBUDDY_VISION_PREVIEW_HEIGHT) {
+        h = EMOTION_PREVIEW_Y + WORKBUDDY_VISION_PREVIEW_HEIGHT - y;
     }
 
-    lv_obj_t *box = lv_obj_create(parent);
-    lv_obj_remove_style_all(box);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_pos(box, x, y);
     lv_obj_set_size(box, w, h);
-    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(box, 3, 0);
-    lv_obj_set_style_border_color(box, lv_color_hex(0xffe45c), 0);
-    lv_obj_set_style_radius(box, 4, 0);
+}
+
+static bool lvgl_refresh_emotion_live(const workbuddy_vision_snapshot_t *snapshot)
+{
+    if (!snapshot || workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION) {
+        return false;
+    }
+
+    bool preview_ready = refresh_emotion_preview();
+    if (!lvgl_port_lock(80)) {
+        return false;
+    }
+    if (workbuddy_launcher_current_screen() != WORKBUDDY_SCREEN_EMOTION ||
+        !s_emotion_preview_image) {
+        lvgl_port_unlock();
+        return false;
+    }
+
+    if (preview_ready) {
+        lvgl_commit_emotion_preview();
+        lv_image_set_src(s_emotion_preview_image, &s_emotion_preview_dsc);
+        lv_obj_invalidate(s_emotion_preview_image);
+        if (s_emotion_waiting_label) {
+            lv_obj_add_flag(s_emotion_waiting_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lvgl_update_face_box(s_emotion_face_box, snapshot);
+
+    char text[160];
+    snprintf(text, sizeof(text), "FACE %s\nFPS %u.%u\nFRAME %lu\nRGB565",
+             snapshot->face_detected ? "YES" : "NO",
+             snapshot->camera_fps_x10 / 10, snapshot->camera_fps_x10 % 10,
+             (unsigned long)s_emotion_preview_frame_id);
+    lv_label_set_text(s_emotion_camera_meta_label, text);
+
+    lv_label_set_text(s_emotion_expression_label, vision_expression_text(snapshot));
+    lv_obj_set_style_text_color(s_emotion_expression_label,
+                                lv_color_hex(vision_expression_accent(snapshot)), 0);
+
+    snprintf(text, sizeof(text),
+             "FACE: %s\nCONF: %03u\nLOCAL: %lums\nMODEL: ESP-WHO",
+             snapshot->face_detected ? "YES" : "NO", snapshot->confidence,
+             (unsigned long)snapshot->inference_ms);
+    lv_label_set_text(s_emotion_meta_label, text);
+
+    snprintf(text, sizeof(text),
+             "LCD  OK\nGT911 OK\nCAM  %s\nAI   %s\nRGB  288x216\nLOCAL ONLY\nNET  %s",
+             snapshot->camera_ready ? "OK" : "WAIT",
+             snapshot->backend == WORKBUDDY_VISION_BACKEND_ESP_WHO ? "WHO OK" : "WAIT",
+             snapshot->service_ready ? "READY" : "WAIT");
+    lv_label_set_text(s_emotion_system_meta_label, text);
+    lv_label_set_text(s_emotion_online_label,
+                      snapshot->service_ready ? "AI ONLINE" : "AI STARTING");
+
+    const char *response_text = snapshot->face_detected ?
+        (snapshot->expression == WORKBUDDY_VISION_EXPRESSION_HAPPY ?
+            "POSITIVE AND ENGAGED" : "CALM AND LISTENING") :
+        "WAITING FOR FACE";
+    lv_label_set_text(s_emotion_response_label, response_text);
+
+    lvgl_port_unlock();
+    return true;
 }
 
 static bool lvgl_show_emotion_page(void)
@@ -1436,7 +1514,18 @@ static bool lvgl_show_emotion_page(void)
 
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);
+    if (preview_ready) {
+        lvgl_commit_emotion_preview();
+    }
     s_emotion_preview_image = NULL;
+    s_emotion_waiting_label = NULL;
+    s_emotion_face_box = NULL;
+    s_emotion_camera_meta_label = NULL;
+    s_emotion_expression_label = NULL;
+    s_emotion_meta_label = NULL;
+    s_emotion_system_meta_label = NULL;
+    s_emotion_response_label = NULL;
+    s_emotion_online_label = NULL;
     lvgl_set_vertical_gradient(scr, 0x06111c, 0x0b2635);
     lv_obj_t *header = lvgl_card(scr, 0, 0, LCD_H_RES, 82, 0x0b3650, 0);
     lvgl_set_vertical_gradient(header, 0x0a2740, 0x086179);
@@ -1444,58 +1533,68 @@ static bool lvgl_show_emotion_page(void)
     lvgl_label(header, "ECHOMATE", 112, 20, &lv_font_montserrat_28, 0xffffff);
     lvgl_label(header, "EDGE AI COMPANION", 320, 29, &lv_font_montserrat_20, 0x99f3ff);
     lv_obj_t *online = lvgl_card(header, 824, 18, 166, 46, 0x20d9d2, 6);
-    lvgl_center_label(online, snapshot.service_ready ? "AI ONLINE" : "AI STARTING",
-                      0, 12, 166, &lv_font_montserrat_20, 0x06283a);
+    s_emotion_online_label = lvgl_center_label(
+        online, snapshot.service_ready ? "AI ONLINE" : "AI STARTING",
+        0, 12, 166, &lv_font_montserrat_20, 0x06283a);
 
     lv_obj_t *camera_card = lvgl_card(scr, 28, 102, 466, 326, 0x0c3047, 8);
     lv_obj_set_style_border_width(camera_card, 2, 0);
     lv_obj_set_style_border_color(camera_card, lv_color_hex(0x1cc9d5), 0);
     lvgl_label(camera_card, "CAMERA", 20, 14, &lv_font_montserrat_20, 0xb8f7ff);
-    const int image_x = 20;
-    const int image_y = 58;
-    lv_obj_t *preview_frame = lvgl_card(camera_card, image_x - 4, image_y - 4,
+    lv_obj_t *preview_frame = lvgl_card(camera_card,
+                                        EMOTION_PREVIEW_X - 4, EMOTION_PREVIEW_Y - 4,
                                         WORKBUDDY_VISION_PREVIEW_WIDTH + 8,
                                         WORKBUDDY_VISION_PREVIEW_HEIGHT + 8,
                                         0x061018, 4);
     lv_obj_set_style_border_width(preview_frame, 2, 0);
     lv_obj_set_style_border_color(preview_frame, lv_color_hex(0x5cf6ff), 0);
-    if (preview_ready) {
+    if (s_emotion_preview_pixels) {
         lv_obj_t *image = lv_image_create(camera_card);
         lv_image_set_src(image, &s_emotion_preview_dsc);
-        lv_obj_set_pos(image, image_x, image_y);
+        lv_obj_set_pos(image, EMOTION_PREVIEW_X, EMOTION_PREVIEW_Y);
         s_emotion_preview_image = image;
-        lvgl_draw_face_box(camera_card, &snapshot, image_x, image_y);
-    } else {
-        lv_obj_t *waiting = lvgl_label(camera_card, "CAMERA STARTING", image_x + 38,
-                                       image_y + 94, &lv_font_montserrat_20, 0x6fa2b5);
-        lvgl_label_width(waiting, 220);
     }
+    if (!preview_ready) {
+        s_emotion_waiting_label = lvgl_label(camera_card, "CAMERA STARTING",
+                                             EMOTION_PREVIEW_X + 38,
+                                             EMOTION_PREVIEW_Y + 94,
+                                             &lv_font_montserrat_20, 0x6fa2b5);
+        lvgl_label_width(s_emotion_waiting_label, 220);
+    }
+    s_emotion_face_box = lv_obj_create(camera_card);
+    lv_obj_remove_style_all(s_emotion_face_box);
+    lv_obj_set_style_bg_opa(s_emotion_face_box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_emotion_face_box, 3, 0);
+    lv_obj_set_style_border_color(s_emotion_face_box, lv_color_hex(0xffe45c), 0);
+    lv_obj_set_style_radius(s_emotion_face_box, 4, 0);
+    lvgl_update_face_box(s_emotion_face_box, &snapshot);
     char camera_meta[96];
     snprintf(camera_meta, sizeof(camera_meta),
              "FACE %s\nFPS %u.%u\nFRAME %lu\nRGB565",
              snapshot.face_detected ? "YES" : "NO",
              snapshot.camera_fps_x10 / 10, snapshot.camera_fps_x10 % 10,
              (unsigned long)s_emotion_preview_frame_id);
-    lv_obj_t *camera_meta_label = lvgl_label(camera_card, camera_meta, 330, 72,
+    s_emotion_camera_meta_label = lvgl_label(camera_card, camera_meta, 330, 72,
                                              &lv_font_montserrat_20, 0xa6d9e8);
-    lvgl_label_width(camera_meta_label, 116);
+    lvgl_label_width(s_emotion_camera_meta_label, 116);
 
     lv_obj_t *emotion_card = lvgl_card(scr, 514, 102, 242, 326, 0x0c3c50, 8);
     lv_obj_set_style_border_width(emotion_card, 2, 0);
     lv_obj_set_style_border_color(emotion_card, lv_color_hex(0x20d9d2), 0);
     lvgl_label(emotion_card, "EMOTION", 20, 18, &lv_font_montserrat_20, 0xb8f7ff);
     uint32_t accent = vision_expression_accent(&snapshot);
-    lv_obj_t *expression = lvgl_label(emotion_card, vision_expression_text(&snapshot),
-                                      20, 66, &workbuddy_cn_28, accent);
-    lvgl_label_width(expression, 200);
+    s_emotion_expression_label = lvgl_label(
+        emotion_card, vision_expression_text(&snapshot),
+        20, 66, &workbuddy_cn_28, accent);
+    lvgl_label_width(s_emotion_expression_label, 200);
     char emotion_meta[128];
     snprintf(emotion_meta, sizeof(emotion_meta),
              "FACE: %s\nCONF: %03u\nLOCAL: %lums\nMODEL: ESP-WHO",
              snapshot.face_detected ? "YES" : "NO", snapshot.confidence,
              (unsigned long)snapshot.inference_ms);
-    lv_obj_t *emotion_meta_label = lvgl_label(emotion_card, emotion_meta, 20, 124,
-                                              &lv_font_montserrat_20, 0xb8e4ee);
-    lvgl_label_width(emotion_meta_label, 202);
+    s_emotion_meta_label = lvgl_label(emotion_card, emotion_meta, 20, 124,
+                                      &lv_font_montserrat_20, 0xb8e4ee);
+    lvgl_label_width(s_emotion_meta_label, 202);
 
     lv_obj_t *system_card = lvgl_card(scr, 776, 102, 220, 326, 0x0a2b41, 8);
     lv_obj_set_style_border_width(system_card, 2, 0);
@@ -1507,9 +1606,9 @@ static bool lvgl_show_emotion_page(void)
              snapshot.camera_ready ? "OK" : "WAIT",
              snapshot.backend == WORKBUDDY_VISION_BACKEND_ESP_WHO ? "WHO OK" : "WAIT",
              snapshot.service_ready ? "READY" : "WAIT");
-    lv_obj_t *system_meta_label = lvgl_label(system_card, system_meta, 18, 64,
+    s_emotion_system_meta_label = lvgl_label(system_card, system_meta, 18, 64,
                                              &lv_font_montserrat_20, 0x8deaf3);
-    lvgl_label_width(system_meta_label, 184);
+    lvgl_label_width(s_emotion_system_meta_label, 184);
 
     lv_obj_t *response = lvgl_card(scr, 28, 452, 968, 116, 0x0b3048, 8);
     lv_obj_set_style_border_width(response, 2, 0);
@@ -1519,7 +1618,8 @@ static bool lvgl_show_emotion_page(void)
         (snapshot.expression == WORKBUDDY_VISION_EXPRESSION_HAPPY ?
             "POSITIVE AND ENGAGED" : "CALM AND LISTENING") :
         "WAITING FOR FACE";
-    lvgl_label(response, response_text, 22, 54, &lv_font_montserrat_28, 0xffffff);
+    s_emotion_response_label = lvgl_label(
+        response, response_text, 22, 54, &lv_font_montserrat_28, 0xffffff);
 
     lvgl_port_unlock();
     return true;
@@ -2055,10 +2155,18 @@ void workbuddy_screen_show_querying(workbuddy_action_id_t action_id)
     update_pet_tip_querying(action_id);
     if (action_id == WORKBUDDY_ACTION_WEATHER) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_WEATHER);
-        lvgl_show_querying_page(action_id);
+        if (s_cached_weather[0] != '\0') {
+            lvgl_show_weather_result_page(s_cached_weather);
+        } else {
+            lvgl_show_querying_page(action_id);
+        }
     } else if (action_id == WORKBUDDY_ACTION_TIME) {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_CALENDAR);
-        lvgl_show_querying_page(action_id);
+        if (s_cached_calendar[0] != '\0') {
+            lvgl_show_calendar_result_page(s_cached_calendar);
+        } else {
+            lvgl_show_querying_page(action_id);
+        }
     } else {
         workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_SUGGESTION);
         lvgl_show_querying_page(action_id);
@@ -2073,21 +2181,31 @@ void workbuddy_screen_show_result(workbuddy_action_id_t action_id)
 void workbuddy_screen_show_result_text(workbuddy_action_id_t action_id, const char *text)
 {
     if (action_id == WORKBUDDY_ACTION_WEATHER) {
-        workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_WEATHER);
-        lvgl_show_weather_result_page(text);
+        snprintf(s_cached_weather, sizeof(s_cached_weather), "%s", text ? text : "");
+        if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_WEATHER) {
+            lvgl_show_weather_result_page(s_cached_weather);
+        }
     } else if (action_id == WORKBUDDY_ACTION_TIME) {
-        workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_CALENDAR);
-        lvgl_show_calendar_result_page(text);
+        snprintf(s_cached_calendar, sizeof(s_cached_calendar), "%s", text ? text : "");
+        if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_CALENDAR) {
+            lvgl_show_calendar_result_page(s_cached_calendar);
+        }
     } else {
         update_pet_tip_from_insight(text);
-        workbuddy_launcher_show_screen(WORKBUDDY_SCREEN_SUGGESTION);
-        lvgl_show_suggestion_page();
+        if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_SUGGESTION) {
+            lvgl_show_suggestion_page();
+        }
     }
 }
 
 void workbuddy_screen_show_error(workbuddy_action_id_t action_id)
 {
-    lvgl_show_error_page(action_id);
+    workbuddy_screen_id_t expected = action_id == WORKBUDDY_ACTION_WEATHER ?
+        WORKBUDDY_SCREEN_WEATHER : action_id == WORKBUDDY_ACTION_TIME ?
+        WORKBUDDY_SCREEN_CALENDAR : WORKBUDDY_SCREEN_SUGGESTION;
+    if (workbuddy_launcher_current_screen() == expected) {
+        lvgl_show_error_page(action_id);
+    }
 }
 
 void workbuddy_screen_update_ai_context(workbuddy_face_state_t face, workbuddy_emotion_state_t emotion)
@@ -2102,14 +2220,6 @@ void workbuddy_screen_update_vision_context(const workbuddy_vision_snapshot_t *s
     if (!snapshot) {
         return;
     }
-
-    bool visual_changed = !s_vision_snapshot_valid ||
-        snapshot->camera_ready != s_vision_snapshot.camera_ready ||
-        snapshot->face_detected != s_vision_snapshot.face_detected ||
-        snapshot->expression != s_vision_snapshot.expression ||
-        snapshot->backend != s_vision_snapshot.backend;
-    s_vision_snapshot = *snapshot;
-    s_vision_snapshot_valid = true;
 
     workbuddy_face_state_t face = snapshot->face_detected ?
         WORKBUDDY_FACE_DETECTED : WORKBUDDY_FACE_NOT_DETECTED;
@@ -2130,13 +2240,9 @@ void workbuddy_screen_update_vision_context(const workbuddy_vision_snapshot_t *s
     }
     workbuddy_screen_update_ai_context(face, emotion);
 
-    if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_EMOTION) {
-        if (visual_changed) {
-            s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
-            lvgl_show_emotion_page();
-        } else if (snapshot->updated_at_ms - s_last_vision_page_refresh_ms >= 120) {
-            s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
-            lvgl_refresh_emotion_preview_only();
-        }
+    if (workbuddy_launcher_current_screen() == WORKBUDDY_SCREEN_EMOTION &&
+        snapshot->updated_at_ms - s_last_vision_page_refresh_ms >= 120) {
+        s_last_vision_page_refresh_ms = snapshot->updated_at_ms;
+        lvgl_refresh_emotion_live(snapshot);
     }
 }
