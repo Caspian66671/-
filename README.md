@@ -57,6 +57,87 @@ ESP-IDF 组件管理器会自动拉取依赖。当前构建中使用到的主要
 3. 情绪研伴：调用本地摄像头画面、人脸框、置信度、推理延迟和研伴回应。
 4. 研伴建议：左侧显示 ESP-DL 本地模型建议，右侧显示 DeepSeek 云端建议，两者使用同一上下文但独立输出。
 
+## 天气和日历数据来源
+
+天气、日历和 DeepSeek 不直接由开发板访问公网，而是通过电脑端代理 `tools/lexin_proxy.js` 获取和整理。这样做有三个好处：开发板启动更快、API Key 不会写进固件、现场网络变化时只需要保证电脑和开发板在同一个 Wi-Fi。
+
+### 天气数据
+
+天气数据来自 Open-Meteo 免费天气接口：
+
+```text
+https://api.open-meteo.com/v1/forecast
+```
+
+当前项目默认查询西安坐标：
+
+```text
+latitude  = 34.3416
+longitude = 108.9398
+timezone  = Asia/Shanghai
+```
+
+代理请求的主要字段是：
+
+- `current_weather=true`：获取当前温度和天气代码。
+- `hourly=precipitation_probability`：获取逐小时降雨概率。
+- `forecast_days=1`：只取当天数据，减少网络开销。
+- `timezone=Asia/Shanghai`：统一使用北京时间。
+
+代理会把 Open-Meteo 返回值整理成开发板容易解析的文本格式：
+
+```text
+TEMP: 31C
+WEATHER: CLOUDY
+RAIN: 0%
+ADVICE: HOT
+```
+
+字段含义：
+
+- `TEMP`：当前温度，单位摄氏度。
+- `WEATHER`：天气类型，取值为 `SUNNY`、`CLOUDY`、`RAIN`、`SNOW` 或 `UNKNOWN`。
+- `RAIN`：离当前时间最近一小时的降雨概率。
+- `ADVICE`：代理给出的基础生活提示，取值为 `UMBRELLA`、`HOT`、`COLD`、`GOOD` 或 `CHECK_NETWORK`。
+
+天气接口有 5 分钟缓存。若当前网络请求失败但之前成功取过天气，会优先使用缓存；若没有缓存，则返回 `UNKNOWN` 和 `CHECK_NETWORK`，屏幕会提示检查网络。
+
+### 日历数据
+
+日历数据不依赖外部云端接口，由电脑端代理根据本机时间本地生成：
+
+- 当前时间：使用 `Asia/Shanghai` 时区生成北京时间。
+- 公历日期：由电脑系统时间转换得到。
+- 农历日期：使用 Node.js 的 `Intl.DateTimeFormat("zh-CN-u-ca-chinese")` 生成中国农历。
+- 节假日：当前内置固定节日规则，包括元旦、劳动节、国庆节。
+- 日期类型：根据节假日和周末判断为 `HOLIDAY`、`WEEKEND` 或 `WORKDAY`。
+
+代理会输出：
+
+```text
+TIME: 14:40
+DATE: 2026-06-04
+LUNAR: si yue shi jiu
+HOLIDAY: NONE
+DAY_TYPE: WORKDAY
+```
+
+开发板收到后会在 LCD 上转换成中文显示，例如日期、农历、日期类型和今日安排。当前规则适合比赛展示和日常演示；如果后续需要更完整的中国调休表，可以继续在 `tools/lexin_proxy.js` 的 `holidayFor()` 函数中扩展。
+
+### 开发板如何获得数据
+
+主界面点击不同功能时，开发板会访问电脑代理的不同接口：
+
+```text
+天气提醒  -> http://电脑IP:8787/weather
+日程提醒  -> http://电脑IP:8787/time
+研伴建议  -> http://电脑IP:8787/edge-context
+云端建议  -> http://电脑IP:8787/insight
+健康检查  -> http://电脑IP:8787/health
+```
+
+开发板和电脑必须连接同一个 Wi-Fi。电脑代理会监听 `0.0.0.0:8787`，并通过 UDP `8788` 做局域网发现；开发板启动后会自动寻找代理，正常情况下不需要手动填写电脑 IP。
+
 ## 新电脑快速启动
 
 ### 1. 安装工具
@@ -111,11 +192,27 @@ CONFIG_LEXIN_WIFI_PASSWORD="abc123456"
 
 ### 5. 启动电脑代理
 
-天气、日历和 DeepSeek 需要电脑端代理。烧录前或烧录后均可双击：
+天气、日历和 DeepSeek 需要电脑端代理。代理可以在烧录前启动，也可以在烧录后启动；只要开发板和电脑在同一个 Wi-Fi，开发板就能访问代理。
+
+最简单的启动方式是双击：
 
 ```text
 start_demo.bat
 ```
+
+它会调用：
+
+```text
+tools/start_lexin_proxy.ps1
+```
+
+这个 PowerShell 脚本会做几件事：
+
+1. 读取本地 `deepseek_config.ps1`，如果没有配置 DeepSeek，就自动使用本地兜底建议。
+2. 启动 Node.js 代理 `tools/lexin_proxy.js`。
+3. 监听 HTTP 端口 `8787`，给开发板提供 `/weather`、`/time`、`/edge-context` 等接口。
+4. 监听 UDP 端口 `8788`，让开发板自动发现电脑 IP。
+5. 自动访问 `http://127.0.0.1:8787/weather` 和 `http://127.0.0.1:8787/time` 做自检。
 
 窗口显示以下内容即可：
 
@@ -126,7 +223,46 @@ Time:
 AI pet insight:
 ```
 
-首次运行如果 Windows 防火墙弹窗，请允许访问当前网络。代理默认端口为 `8787`，开发板会自动使用当前电脑局域网 IP。
+如果想手动启动，也可以在项目根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\start_lexin_proxy.ps1
+```
+
+如果想检查数据是否已经能被访问，可以双击：
+
+```text
+check_proxy.bat
+```
+
+也可以在浏览器或 PowerShell 中打开：
+
+```text
+http://127.0.0.1:8787/weather
+http://127.0.0.1:8787/time
+http://127.0.0.1:8787/health
+```
+
+正常天气返回类似：
+
+```text
+TEMP: 31C
+WEATHER: CLOUDY
+RAIN: 0%
+ADVICE: HOT
+```
+
+正常日历返回类似：
+
+```text
+TIME: 14:40
+DATE: 2026-06-04
+LUNAR: si yue shi jiu
+HOLIDAY: NONE
+DAY_TYPE: WORKDAY
+```
+
+首次运行如果 Windows 防火墙弹窗，请允许访问当前网络。若没有授权，电脑自己访问 `127.0.0.1` 可能正常，但开发板访问电脑 IP 会失败，天气页面就会显示“检查网络后再试”。
 
 ### 6. 构建固件
 
