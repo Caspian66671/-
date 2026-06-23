@@ -1231,7 +1231,8 @@ static bool lvgl_show_launcher(void)
     lvgl_set_vertical_gradient(scr, 0xe7f7ff, 0xc7f0ff);
     lvgl_card(scr, 0, 0, LCD_H_RES, 86, 0x19afd8, 0);
     lv_obj_set_style_bg_opa(lvgl_card(scr, 0, 86, LCD_H_RES, 102, 0x8fe2f5, 0), LV_OPA_40, 0);
-    lvgl_label(scr, "乐鑫 AI桌宠", 48, 22, &lexin_cn_28, 0xffffff);
+    lvgl_label(scr, "LeXin", 48, 22, &lv_font_montserrat_28, 0xffffff);
+    lvgl_label(scr, "AI桌宠", 140, 22, &lexin_cn_28, 0xffffff);
 
     lv_obj_t *pet_card = lvgl_glass_card(scr, 66, 132, 348, 344, 28);
     lvgl_label(pet_card, "小伙伴在线", 32, 30, &lexin_cn_28, 0x10283e);
