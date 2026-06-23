@@ -84,6 +84,7 @@ if ($nodeReady) {
 
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "1. Double-click start_demo.bat to start the local proxy."
-Write-Host "2. Edit WiFi/proxy settings in sdkconfig.defaults or ESP-IDF menuconfig."
+Write-Host "1. Connect the PC to the demo WiFi configured in sdkconfig.defaults."
+Write-Host "2. Double-click start_demo.bat and approve the one-time firewall prompt."
 Write-Host "3. Run build_firmware.bat from an ESP-IDF terminal to build firmware."
+Write-Host "The board discovers the new PC automatically; no proxy IP editing is needed."

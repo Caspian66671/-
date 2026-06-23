@@ -143,9 +143,9 @@ start_demo.bat
 build_firmware.bat
 ```
 
-公开仓库不包含 Wi-Fi 密码。首次烧录前运行 `idf.py menuconfig`，在
-`WorkBuddy Configuration` 中填写本机 Wi-Fi；生成的 `sdkconfig` 已被
-`.gitignore` 忽略，不会上传。
+当前私有比赛仓库已在 `sdkconfig.defaults` 中写入演示 Wi-Fi，下载后可直接构建烧录。
+新电脑只需连接同一 Wi-Fi 并双击 `start_demo.bat`；脚本会启动代理、申请一次防火墙
+放行，开发板会自动发现新电脑地址，不需要手动修改代理 IP。
 
 ## 项目文件
 

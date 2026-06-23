@@ -31,8 +31,8 @@ static const char *TAG = "workbuddy";
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
-#define PROXY_DISCOVERY_TIMEOUT_MS 120
-#define PROXY_FAST_HTTP_TIMEOUT_MS 3000
+#define PROXY_DISCOVERY_TIMEOUT_MS 60
+#define PROXY_FAST_HTTP_TIMEOUT_MS 6000
 #define PROXY_AI_HTTP_TIMEOUT_MS 8000
 #define ACTION_WIFI_WAIT_MS 3000
 #define PROXY_DISCOVERY_ATTEMPTS 2
@@ -184,12 +184,16 @@ static const char *get_proxy_base_url(void)
     if (strlen(CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST) > 0) {
         struct in_addr preferred_addr;
         if (inet_aton(CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST, &preferred_addr) != 0) {
-            ESP_LOGI(TAG, "Using configured proxy host: %s",
+            ESP_LOGI(TAG, "Checking preferred proxy host: %s",
                      CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST);
-            return set_proxy_base_url(preferred_addr.s_addr);
+            if (tcp_port_open(preferred_addr.s_addr)) {
+                return set_proxy_base_url(preferred_addr.s_addr);
+            }
+            ESP_LOGW(TAG, "Preferred proxy is unavailable; discovering this PC automatically");
+        } else {
+            ESP_LOGW(TAG, "Configured proxy host is invalid: %s",
+                     CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST);
         }
-        ESP_LOGW(TAG, "Configured proxy host is invalid: %s",
-                 CONFIG_WORKBUDDY_PROXY_PREFERRED_HOST);
     }
 
     if (ip_info.gw.addr != 0 && ip_info.gw.addr != ip_info.ip.addr &&
@@ -201,16 +205,23 @@ static const char *get_proxy_base_url(void)
     uint32_t ip = ntohl(ip_info.ip.addr);
     uint32_t network = ip & 0xffffff00UL;
 
-    ESP_LOGI(TAG, "Discovering fast proxy in local /24 on port %d", CONFIG_WORKBUDDY_PROXY_PORT);
-    for (uint32_t offset = 1; offset <= PROXY_DISCOVERY_MAX_HOSTS; offset++) {
-        uint32_t host = network | offset;
-        if (host == ip || offset == 255) {
-            continue;
-        }
-
-        uint32_t addr = htonl(host);
-        if (tcp_port_open(addr)) {
-            return set_proxy_base_url(addr);
+    uint32_t self_host = ip & 0xffUL;
+    ESP_LOGI(TAG, "Discovering proxy near device host .%lu on port %d",
+             (unsigned long)self_host, CONFIG_WORKBUDDY_PROXY_PORT);
+    for (uint32_t distance = 1; distance <= PROXY_DISCOVERY_MAX_HOSTS; distance++) {
+        int32_t candidates[2] = {
+            (int32_t)self_host - (int32_t)distance,
+            (int32_t)self_host + (int32_t)distance,
+        };
+        for (size_t index = 0; index < 2; index++) {
+            int32_t offset = candidates[index];
+            if (offset <= 0 || offset >= 255) {
+                continue;
+            }
+            uint32_t addr = htonl(network | (uint32_t)offset);
+            if (tcp_port_open(addr)) {
+                return set_proxy_base_url(addr);
+            }
         }
     }
 
@@ -386,6 +397,10 @@ static void request_proxy_action(const workbuddy_action_t *action)
         }
     } else {
         ESP_LOGE(TAG, "Proxy request failed: %s", esp_err_to_name(err));
+        if (strcmp(CONFIG_WORKBUDDY_PROXY_BASE_URL, "auto") == 0) {
+            proxy_base_url[0] = '\0';
+            ESP_LOGW(TAG, "Cleared stale proxy address; the next request will rediscover it");
+        }
         workbuddy_screen_show_error(action->id);
     }
 

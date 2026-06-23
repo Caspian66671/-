@@ -14,6 +14,11 @@ const XIAN_LON = 108.9398;
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const WEATHER_CACHE_MS = 5 * 60 * 1000;
+
+let weatherCache = null;
+let weatherCacheExpiresAt = 0;
+let weatherRefreshPromise = null;
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -65,7 +70,7 @@ function nearestRainProbability(data) {
   return Number.isFinite(probs[bestIndex]) ? `${probs[bestIndex]}%` : "UNKNOWN";
 }
 
-async function weatherData() {
+async function fetchWeatherData() {
   try {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", String(XIAN_LAT));
@@ -99,6 +104,27 @@ async function weatherData() {
       advice: "CHECK_NETWORK",
     };
   }
+}
+
+async function weatherData() {
+  const now = Date.now();
+  if (weatherCache && now < weatherCacheExpiresAt) return weatherCache;
+  if (weatherRefreshPromise) return weatherRefreshPromise;
+
+  weatherRefreshPromise = fetchWeatherData()
+    .then((data) => {
+      if (data.weather !== "UNKNOWN") {
+        weatherCache = data;
+        weatherCacheExpiresAt = Date.now() + WEATHER_CACHE_MS;
+      } else if (weatherCache) {
+        return weatherCache;
+      }
+      return data;
+    })
+    .finally(() => {
+      weatherRefreshPromise = null;
+    });
+  return weatherRefreshPromise;
 }
 
 function weatherText(data) {

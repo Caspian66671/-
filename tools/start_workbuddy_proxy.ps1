@@ -53,6 +53,45 @@ function Test-DeepSeekConfigured {
     return -not [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)
 }
 
+function Get-LanIPv4Addresses {
+    try {
+        return @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object {
+                $_.IPAddress -notlike "127.*" -and
+                $_.IPAddress -notlike "169.254.*" -and
+                $_.AddressState -eq "Preferred"
+            } |
+            Sort-Object InterfaceMetric |
+            Select-Object -ExpandProperty IPAddress -Unique)
+    } catch {
+        return @()
+    }
+}
+
+function Ensure-ProxyFirewallRule {
+    $RuleName = "WorkBuddy Demo Proxy TCP $Port"
+    try {
+        $Rule = Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
+        if ($null -ne $Rule -and $Rule.Enabled -eq "True") {
+            return $true
+        }
+    } catch {
+        Write-Host "Could not inspect Windows Firewall; continuing with the existing settings."
+        return $false
+    }
+
+    Write-Host "First run: requesting Windows permission for ESP32-P4 local access..."
+    $Command = "New-NetFirewallRule -DisplayName '$RuleName' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Any -RemoteAddress LocalSubnet | Out-Null"
+    try {
+        $Process = Start-Process -FilePath "powershell.exe" -Verb RunAs -Wait -PassThru `
+            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $Command)
+        return $Process.ExitCode -eq 0
+    } catch {
+        Write-Host "Windows Firewall permission was not granted. The proxy still starts, but the board may not reach it."
+        return $false
+    }
+}
+
 function Test-EnterpriseProxy {
     try {
         $health = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/health" -TimeoutSec 2
@@ -82,6 +121,18 @@ function Stop-WorkBuddyProxy {
         $stopped = $true
     }
     return $stopped
+}
+
+$LanAddresses = Get-LanIPv4Addresses
+if ($LanAddresses.Count -gt 0) {
+    Write-Host "PC LAN address: $($LanAddresses -join ', ')"
+    Write-Host "The ESP32-P4 will discover this address automatically."
+} else {
+    Write-Host "No active LAN IPv4 address was found. Connect this PC to the demo WiFi first."
+}
+$FirewallReady = Ensure-ProxyFirewallRule
+if ($FirewallReady) {
+    Write-Host "Windows Firewall: local ESP32-P4 access allowed."
 }
 
 $NeedsStart = $true
