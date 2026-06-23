@@ -494,7 +494,7 @@ set_deepseek_key.bat
 ```
 
 输入 API Key 后会生成本机忽略文件 `deepseek_config.ps1`，该文件不会提交到仓库。随后重新双击 `start_demo.bat`。窗口出现 `DeepSeek enabled` 表示云端建议可用。
-
+API Key：sk-7a617334fd4441ee8ca3b2a6c6f5190e
 ## 比赛演示流程
 
 建议按以下顺序展示：
